@@ -9,14 +9,19 @@
 - Confirm the package version matches `VERSION`, `package.json`, assembly
   metadata, and release tag.
 - Generate and record the package SHA256 checksum.
+- Prepare GitHub Release notes with added behavior, fixes, validation, known
+  issues, and rollback notes.
 
 ## Beta Release
 
 - Publish from the `beta` branch.
 - Tag as `vX.Y.Z-beta.N`.
 - Attach package artifact and checksum.
+- Publish GitHub Release as pre-release.
 - Update the beta update manifest.
 - Install only on demo or pilot terminals.
+- Install through the updater, not by manual folder replacement, unless the
+  updater itself is the component being debugged.
 
 ## Stable Release
 
@@ -33,6 +38,8 @@ Promote to stable only after the full iikoFront regression passes:
 - iikoFront restart;
 - sidecar restart;
 - offline queue/status check.
+- updater dry-run against the stable manifest;
+- updater install on the validation terminal when promoting a package.
 
 ## Rollback
 

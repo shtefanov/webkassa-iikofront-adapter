@@ -19,7 +19,7 @@ powershell -ExecutionPolicy Bypass -File scripts\package-iikofront-adapter.ps1
 Output:
 
 ```text
-dist\iikofront-adapter\Webkassa.IikoFrontAdapter.Spike-<VERSION>-<timestamp>.zip
+dist\iikofront-adapter\Resto.Front.Api.Webkassa.V9-<VERSION>-<timestamp>.zip
 ```
 
 The zip contains:
@@ -40,13 +40,13 @@ configuration, or raw iiko logs.
 Current package:
 
 ```text
-dist/iikofront-adapter/Webkassa.IikoFrontAdapter.Spike-0.10.1-spike-20260710-113914.zip
+dist/iikofront-adapter/Resto.Front.Api.Webkassa.V9-0.10.1-spike-20260710-113914.zip
 ```
 
 Windows source path:
 
 ```text
-C:\OpenClaw\work\webkassa\dist\iikofront-adapter\Webkassa.IikoFrontAdapter.Spike-0.10.1-spike-20260710-113914.zip
+C:\OpenClaw\work\webkassa\dist\iikofront-adapter\Resto.Front.Api.Webkassa.V9-0.10.1-spike-20260710-113914.zip
 ```
 
 The package manifest records:
@@ -82,9 +82,9 @@ This is useful for verifying plugin loading, driver visibility, and iikoFront
 API compatibility without fiscal writes.
 
 On the Windows iikoFront 9.5 VM, the current package loaded successfully from
-`C:\Program Files\iiko\iikoRMS\Front.Net\Plugins\Webkassa.IikoFrontAdapter.Spike`.
+`C:\Program Files\iiko\iikoRMS\Front.Net\Plugins\Resto.Front.Api.Webkassa.V9`.
 iikoFront started `Resto.Front.Api.Host.exe`, connected
-`Webkassa.IikoFrontAdapter.Spike`, and registered
+`Resto.Front.Api.Webkassa.V9`, and registered
 `WebkassaFiscalAdapterSpike`.
 
 Device setup was also validated on the same VM:

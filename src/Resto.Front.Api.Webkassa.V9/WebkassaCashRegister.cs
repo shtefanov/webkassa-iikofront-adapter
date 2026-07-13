@@ -14,7 +14,7 @@ using Resto.Front.Api.Devices;
 using Resto.Front.Api.Exceptions;
 using Resto.Front.Api.UI;
 
-namespace Webkassa.IikoFrontAdapter.Spike;
+namespace Resto.Front.Api.Webkassa.V9;
 
 public sealed class WebkassaCashRegister : MarshalByRefObject, ICashRegister
 {

@@ -19,8 +19,8 @@ The diagnostic must not expose:
 - `src/fiscal-errors.js`
 - `src/webkassa-error-catalog.js`
 - `src/webkassa-client.js`
-- `src/Webkassa.IikoFrontAdapter.Spike/SidecarClient.cs`
-- `src/Webkassa.IikoFrontAdapter.Spike/WebkassaCashRegister.cs`
+- `src/Resto.Front.Api.Webkassa.V9/SidecarClient.cs`
+- `src/Resto.Front.Api.Webkassa.V9/WebkassaCashRegister.cs`
 - `src/fiscal-service.js`
 - `tests/contract/webkassa-contract.test.js`
 

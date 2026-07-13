@@ -27,8 +27,10 @@ Git tags should include the `v` prefix:
 - `main`: stable-ready source.
 - `beta`: current beta integration branch.
 
-Changes should land in `beta` first. Promote to `main` only after the production
-regression checklist passes on a representative iikoFront terminal.
+Changes should land in `beta` first. This includes receipt/report template
+changes, installer changes, and updater changes. Promote to `main` only after
+the production regression checklist passes on a representative iikoFront
+terminal.
 
 ## Release Artifacts
 
@@ -37,6 +39,8 @@ Each GitHub Release should include:
 - iikoFront adapter ZIP or MSI package.
 - SHA256 checksum file.
 - release notes.
+- GitHub Release documentation for what changed, what was fixed, validation,
+  known issues, and rollback notes.
 - minimum supported iikoFront/API version.
 - known issues and rollback notes.
 
@@ -59,7 +63,8 @@ Manifest fields:
   "packageUrl": "https://iiko-plugin.kz/downloads/webkassa/0.12.0/Webkassa.IikoFrontAdapter.zip",
   "sha256": "<package-sha256>",
   "signature": "<detached-signature-or-empty-until-signing-is-enabled>",
-  "minIikoFrontApiVersion": "9.5",
+  "minIikoFrontVersion": "9.5",
+  "minIikoFrontApiVersion": "V9",
   "releaseNotesUrl": "https://iiko-plugin.kz/releases/webkassa/0.12.0",
   "publishedAt": "DD-MM-YYYY"
 }

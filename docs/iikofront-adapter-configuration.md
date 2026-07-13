@@ -12,8 +12,8 @@ Raw API keys, logins, passwords, and tokens must not be stored in config files.
 
 ## Current Files
 
-- C# model: `src/Webkassa.IikoFrontAdapter.Spike/AdapterConfiguration.cs`
-- Secret boundary: `src/Webkassa.IikoFrontAdapter.Spike/SecretProvider.cs`
+- C# model: `src/Resto.Front.Api.Webkassa.V9/AdapterConfiguration.cs`
+- Secret boundary: `src/Resto.Front.Api.Webkassa.V9/SecretProvider.cs`
 - Example config: `config/iikofront-adapter.config.example.json`
 
 ## Config Location

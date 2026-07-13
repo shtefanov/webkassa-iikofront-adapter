@@ -11,7 +11,7 @@ operator diagnostics.
 
 The repository is private and under active beta development.
 
-Current package version: `0.11.42-beta`.
+Current package version: `0.11.45-beta`.
 
 Production rollout requires the stable release checklist in
 [`docs/release-checklist.md`](docs/release-checklist.md).
@@ -26,6 +26,7 @@ Production rollout requires the stable release checklist in
 - Offline queue and recovery-oriented fiscal result store.
 - Windows DPAPI secret storage for installed terminals.
 - Setup utility for configuration, secret entry, and connection checks.
+- Manifest-driven Windows updater for beta/stable release channels.
 - Operator-facing diagnostic messages for common Webkassa errors.
 - National Catalog helper flow for iiko product data.
 
@@ -33,7 +34,7 @@ Production rollout requires the stable release checklist in
 
 | Path | Purpose |
 | --- | --- |
-| `src/Webkassa.IikoFrontAdapter.Spike/` | iikoFront plugin source. |
+| `src/Resto.Front.Api.Webkassa.V9/` | iikoFront plugin source. |
 | `tools/Webkassa.IikoFrontAdapter.Setup/` | terminal setup/configuration utility. |
 | `tools/Webkassa.Sidecar.WindowsService/` | Windows service wrapper for the sidecar. |
 | `src/*.js` | Webkassa client, sidecar, storage, queue, diagnostics, and helpers. |
@@ -106,6 +107,8 @@ Important docs:
 - [`docs/sidecar-architecture.md`](docs/sidecar-architecture.md)
 - [`docs/iikofront-adapter-package.md`](docs/iikofront-adapter-package.md)
 - [`docs/iikofront-terminal-install.md`](docs/iikofront-terminal-install.md)
+- [`docs/updater.md`](docs/updater.md)
+- [`docs/github-releases.md`](docs/github-releases.md)
 - [`docs/release-channels.md`](docs/release-channels.md)
 - [`docs/release-checklist.md`](docs/release-checklist.md)
 - [`SECURITY.md`](SECURITY.md)
@@ -120,6 +123,10 @@ The project uses two channels:
 
 The `main` branch represents stable-ready source. The `beta` branch is used for
 active beta integration.
+
+Every behavior or template change is released to `beta` first. After the full
+regression checklist passes, the same tested build is promoted through the
+`stable` channel and distributed by the updater manifest.
 
 See [`docs/release-channels.md`](docs/release-channels.md).
 

@@ -9,7 +9,7 @@ using Resto.Front.Api;
 using Resto.Front.Api.Data.Cheques;
 using Resto.Front.Api.Data.Print;
 
-namespace Webkassa.IikoFrontAdapter.Spike;
+namespace Resto.Front.Api.Webkassa.V9;
 
 public static class WebkassaReceiptPrinter
 {

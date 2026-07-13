@@ -10,6 +10,9 @@ This repository is private and maintained for the Webkassa iikoFront adapter.
 Open changes against `beta` first. Promote to `main` only after the stable
 release checklist passes.
 
+Behavior, template, installer, and updater changes are released to `beta` first.
+Only the tested beta build may be promoted to `stable`.
+
 ## Development Rules
 
 - Keep changes focused and small.
@@ -61,3 +64,8 @@ Every release artifact should include:
 - release notes;
 - minimum supported iikoFront/API version;
 - rollback notes.
+
+Publish package updates through the channel manifests consumed by the updater:
+
+- beta: `https://iiko-plugin.kz/updates/webkassa/beta.json`;
+- stable: `https://iiko-plugin.kz/updates/webkassa/stable.json`.

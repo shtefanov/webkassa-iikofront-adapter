@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <Manifest xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <FileName>Webkassa.IikoFrontAdapter.Spike.dll</FileName>
-  <TypeName>Webkassa.IikoFrontAdapter.Spike.Plugin</TypeName>
+  <FileName>Resto.Front.Api.Webkassa.V9.dll</FileName>
+  <TypeName>Resto.Front.Api.Webkassa.V9.Plugin</TypeName>
   <ApiVersion>V9</ApiVersion>
   <IsSingleInstance>true</IsSingleInstance>
   <LicenseModuleId>21016318</LicenseModuleId>

@@ -3,7 +3,7 @@ using System.Globalization;
 using System.Linq;
 using Resto.Front.Api.Data.Device.Tasks;
 
-namespace Webkassa.IikoFrontAdapter.Spike;
+namespace Resto.Front.Api.Webkassa.V9;
 
 public static class ChequeTaskDraftMapper
 {

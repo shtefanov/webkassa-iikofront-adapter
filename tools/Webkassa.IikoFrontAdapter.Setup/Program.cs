@@ -7,7 +7,7 @@ using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
 using System.Text;
 using System.Text.RegularExpressions;
-using Webkassa.IikoFrontAdapter.Spike;
+using Resto.Front.Api.Webkassa.V9;
 
 namespace Webkassa.IikoFrontAdapter.Setup;
 

@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string] $PackagePath,
 
-    [string] $PluginPath = "C:\Program Files\iiko\iikoRMS\Front.Net\Plugins\Webkassa.IikoFrontAdapter.Spike",
+    [string] $PluginPath = "C:\Program Files\iiko\iikoRMS\Front.Net\Plugins\Resto.Front.Api.Webkassa.V9",
 
     [string] $StagePath = "C:\OpenClaw\work\webkassa\dist\iikofront-adapter\deploy-stage"
 )

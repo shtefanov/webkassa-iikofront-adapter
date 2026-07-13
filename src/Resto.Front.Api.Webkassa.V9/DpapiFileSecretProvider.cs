@@ -3,7 +3,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Webkassa.IikoFrontAdapter.Spike;
+namespace Resto.Front.Api.Webkassa.V9;
 
 public sealed class DpapiFileSecretProvider : ISecretProvider
 {

@@ -17,7 +17,7 @@ Code:
 - `src/offline-fiscal-queue.js`
 - `src/fiscal-service.js`
 - `src/sidecar-server.js`
-- `src/Webkassa.IikoFrontAdapter.Spike/SidecarClient.cs`
+- `src/Resto.Front.Api.Webkassa.V9/SidecarClient.cs`
 
 Config:
 
@@ -147,4 +147,4 @@ Build validation:
 - Windows Release build passed with `0` warnings and `0` errors.
 - Setup utility `--paths` runs on Windows.
 - Package created:
-  `dist/iikofront-adapter/Webkassa.IikoFrontAdapter.Spike-0.6.0-spike-20260702-194010.zip`.
+  `dist/iikofront-adapter/Resto.Front.Api.Webkassa.V9-0.6.0-spike-20260702-194010.zip`.

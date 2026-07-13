@@ -107,10 +107,10 @@ CashRegisterResult DoCheque(
 
 Compile-level skeleton result:
 
-- Windows path: `C:\OpenClaw\work\webkassa-iikofront-adapter\src\Webkassa.IikoFrontAdapter.Spike`
-- Local source: `src/Webkassa.IikoFrontAdapter.Spike`
+- Windows path: `C:\OpenClaw\work\webkassa-iikofront-adapter\src\Resto.Front.Api.Webkassa.V9`
+- Local source: `src/Resto.Front.Api.Webkassa.V9`
 - Build output:
-  `C:\OpenClaw\work\webkassa-iikofront-adapter\src\Webkassa.IikoFrontAdapter.Spike\bin\Debug\Webkassa.IikoFrontAdapter.Spike.dll`
+  `C:\OpenClaw\work\webkassa-iikofront-adapter\src\Resto.Front.Api.Webkassa.V9\bin\Debug\Resto.Front.Api.Webkassa.V9.dll`
 - `dotnet build --no-restore` passed with `0` warnings and `0` errors.
 
 ## Stop Conditions

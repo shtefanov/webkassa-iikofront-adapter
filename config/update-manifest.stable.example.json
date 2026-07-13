@@ -1,0 +1,11 @@
+{
+  "channel": "stable",
+  "version": "0.12.0",
+  "packageUrl": "https://iiko-plugin.kz/downloads/webkassa/stable/0.12.0/Resto.Front.Api.Webkassa.V9-0.12.0.zip",
+  "sha256": "replace-with-lowercase-package-sha256",
+  "signature": "",
+  "minIikoFrontVersion": "9.5",
+  "minIikoFrontApiVersion": "V9",
+  "releaseNotesUrl": "https://iiko-plugin.kz/releases/webkassa/0.12.0",
+  "publishedAt": "13-07-2026"
+}

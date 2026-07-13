@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Text;
 
-namespace Webkassa.IikoFrontAdapter.Spike;
+namespace Resto.Front.Api.Webkassa.V9;
 
 internal static class QrCodeRenderer
 {

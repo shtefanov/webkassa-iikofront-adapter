@@ -4,10 +4,10 @@ Date: 02-07-2026
 
 ## Current Version
 
-Current adapter spike version:
+Current adapter version:
 
 ```text
-0.10.0-spike
+0.11.45-beta
 ```
 
 Canonical version file:
@@ -23,15 +23,15 @@ production-ready:
 
 - `0.x.y-spike` - compile/load/demo validation work;
 - `0.x.y-alpha` - first demo fiscalization path;
-- `0.x.y-beta` - broader test terminal validation;
-- `1.0.0` - production-ready release candidate after explicit approval.
+- `0.x.y-beta` or `0.x.y-beta.N` - broader test terminal validation;
+- `0.x.y` or `1.x.y` - stable release after explicit approval and regression.
 
 ## Release Files
 
 - `VERSION` - canonical current version.
 - `CHANGELOG.md` - human-readable release history.
-- `src/Webkassa.IikoFrontAdapter.Spike/ReleaseInfo.cs` - runtime-visible version.
-- `Webkassa.IikoFrontAdapter.Spike.csproj` - assembly metadata.
+- `src/Resto.Front.Api.Webkassa.V9/ReleaseInfo.cs` - runtime-visible version.
+- `Resto.Front.Api.Webkassa.V9.csproj` - assembly metadata.
 - `scripts/package-iikofront-adapter.ps1` - reads `VERSION` for package names
   and `package-manifest.json`.
 
@@ -40,13 +40,13 @@ production-ready:
 Format:
 
 ```text
-Webkassa.IikoFrontAdapter.Spike-<version>-<yyyyMMdd-HHmmss>.zip
+Resto.Front.Api.Webkassa.V9-<version>-<yyyyMMdd-HHmmss>.zip
 ```
 
 Example:
 
 ```text
-Webkassa.IikoFrontAdapter.Spike-0.10.0-spike-<timestamp>.zip
+Resto.Front.Api.Webkassa.V9-0.11.45-beta-<timestamp>.zip
 ```
 
 ## Release Checklist
@@ -63,10 +63,8 @@ Before handing a package to a demo terminal:
 8. Run secret marker scan.
 9. Add Archive entry.
 
-## Current Boundary
+## Release Boundary
 
-`0.10.0-spike` is still demo/load-validation only. It must not be deployed to
-production iikoFront terminals or production Webkassa cashboxes. Interim
-iiko `LicenseModuleId=21016318` is included in code and `Manifest.xml`, but it
-must be confirmed against the issued iiko demo/developer license before a real
-iikoFront plugin load test.
+Stable releases are promoted from a tested beta build. Do not publish a stable
+manifest only because a package exists; publish it only after the full iikoFront
+and Webkassa regression checklist passes.

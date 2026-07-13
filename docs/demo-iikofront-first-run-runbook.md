@@ -12,7 +12,7 @@ Do not use this runbook on production terminals or production cashboxes.
 Current package:
 
 ```text
-dist/iikofront-adapter/Webkassa.IikoFrontAdapter.Spike-0.11.0-beta-<timestamp>.zip
+dist/iikofront-adapter/Resto.Front.Api.Webkassa.V9-0.11.0-beta-<timestamp>.zip
 ```
 
 Current iiko license module id:
@@ -38,18 +38,18 @@ On the demo Windows machine, copy the package to a temporary work folder, for
 example:
 
 ```text
-C:\OpenClaw\work\webkassa\dist\iikofront-adapter\Webkassa.IikoFrontAdapter.Spike-0.10.1-spike-20260710-113914.zip
+C:\OpenClaw\work\webkassa\dist\iikofront-adapter\Resto.Front.Api.Webkassa.V9-0.10.1-spike-20260710-113914.zip
 ```
 
 Unpack it into a temporary folder first, not directly into iikoFront:
 
 ```powershell
-Expand-Archive -Path .\Webkassa.IikoFrontAdapter.Spike-0.10.1-spike-20260710-113914.zip -DestinationPath .\Webkassa.IikoFrontAdapter.Spike-0.10.1-spike
+Expand-Archive -Path .\Resto.Front.Api.Webkassa.V9-0.10.1-spike-20260710-113914.zip -DestinationPath .\Resto.Front.Api.Webkassa.V9-0.10.1-spike
 ```
 
 Expected package files:
 
-- `Webkassa.IikoFrontAdapter.Spike.dll`
+- `Resto.Front.Api.Webkassa.V9.dll`
 - `Manifest.xml`
 - `Manifest.xml.template`
 - `package-manifest.json`
@@ -121,7 +121,7 @@ C:\Program Files\iiko\iikoRMS\Front.Net\Plugins
 Create a separate plugin subfolder, for example:
 
 ```text
-...\Front.Net\Plugins\Webkassa.IikoFrontAdapter.Spike
+...\Front.Net\Plugins\Resto.Front.Api.Webkassa.V9
 ```
 
 Copy the unpacked package files into that subfolder.
@@ -138,7 +138,7 @@ Start demo iikoFront and check logs for:
 - no Webkassa fiscal write during load.
 
 Validated on the Windows iikoFront 9.5 VM: package
-`Webkassa.IikoFrontAdapter.Spike-0.10.1-spike-20260710-113914.zip`
+`Resto.Front.Api.Webkassa.V9-0.10.1-spike-20260710-113914.zip`
 loads, connects the plugin host, and registers the cash-register factory.
 
 ## Device setup check
@@ -210,7 +210,7 @@ reported `Is MainCash configured: True`, and iikoFront opened the cash shift by
 calling Webkassa `DoOpenSession` followed by `DoXReport`.
 
 Controlled `DoCheque` dry-run result: package
-`Webkassa.IikoFrontAdapter.Spike-0.10.7-spike-20260710-211902.zip` closed order
+`Resto.Front.Api.Webkassa.V9-0.10.7-spike-20260710-211902.zip` closed order
 №6 with `Сахар стик` for `10,00 тг.`. iikoFront called `OpenDrawer`
 successfully, then `DoCheque`; the adapter returned `success=true`,
 `cashSum=10`, `totalIncomeSum=10`, `session=1`, and `saleNumber=1`. iikoFront
@@ -245,7 +245,7 @@ Live Webkassa validation result on 10-07-2026:
 Follow-up service/state validation on 11-07-2026:
 
 - package `0.11.2-beta` was deployed on the Windows VM;
-- iikoFront loaded `Webkassa.IikoFrontAdapter.Spike v0.11.2-beta`;
+- iikoFront loaded `Resto.Front.Api.Webkassa.V9 v0.11.2-beta`;
 - `GetCashRegisterStatus` now reports fiscal mode (`RestaurantMode=false`),
   clearing the earlier red `Неверный режим ФР` top-bar status;
 - current UI blocker: remote scheduled-task input can focus the PIN window, but
@@ -280,7 +280,7 @@ Earlier local terminal sidecar validation:
   not part of the terminal path;
 - setup `--test-connection --machine-scope` passed against Webkassa test
   cashbox `SWK00035753`;
-- iikoFront loaded `Webkassa.IikoFrontAdapter.Spike v0.11.3-beta` before this
+- iikoFront loaded `Resto.Front.Api.Webkassa.V9 v0.11.3-beta` before this
   build and showed `Фастфуд`, `Смена открыта`, and a green Webkassa indicator;
 - fresh `0.11.4-beta` GUI load still requires active RDP/manual session because
   scheduled task startup is unavailable without an interactive session.
@@ -320,7 +320,7 @@ First-run load is successful when:
 If iikoFront fails to start or plugin load fails:
 
 1. Stop demo iikoFront.
-2. Move only the `Webkassa.IikoFrontAdapter.Spike` plugin folder out of
+2. Move only the `Resto.Front.Api.Webkassa.V9` plugin folder out of
    `Plugins`.
 3. Start demo iikoFront again.
 4. Preserve the failing logs for analysis with secrets redacted.

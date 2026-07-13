@@ -72,8 +72,8 @@ Relevant `ChequePayment` fields:
 
 ## Added C# Files
 
-- `src/Webkassa.IikoFrontAdapter.Spike/IikoChequeDraft.cs`
-- `src/Webkassa.IikoFrontAdapter.Spike/ChequeTaskDraftMapper.cs`
+- `src/Resto.Front.Api.Webkassa.V9/IikoChequeDraft.cs`
+- `src/Resto.Front.Api.Webkassa.V9/ChequeTaskDraftMapper.cs`
 
 ## Current Behavior
 

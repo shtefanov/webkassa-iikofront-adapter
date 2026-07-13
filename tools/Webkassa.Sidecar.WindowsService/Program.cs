@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.ServiceProcess;
-using Webkassa.IikoFrontAdapter.Spike;
+using Resto.Front.Api.Webkassa.V9;
 
 namespace Webkassa.Sidecar.WindowsService;
 

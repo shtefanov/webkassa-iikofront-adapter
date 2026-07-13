@@ -1,6 +1,6 @@
 param(
     [string]$Configuration = "Release",
-    [string]$ProjectPath = "src/Webkassa.IikoFrontAdapter.Spike/Webkassa.IikoFrontAdapter.Spike.csproj",
+    [string]$ProjectPath = "src/Resto.Front.Api.Webkassa.V9/Resto.Front.Api.Webkassa.V9.csproj",
     [string]$SetupProjectPath = "tools/Webkassa.IikoFrontAdapter.Setup/Webkassa.IikoFrontAdapter.Setup.csproj",
     [string]$SidecarServiceProjectPath = "tools/Webkassa.Sidecar.WindowsService/Webkassa.Sidecar.WindowsService.csproj",
     [string]$OutputRoot = "dist/iikofront-adapter"
@@ -15,7 +15,7 @@ $setupProjectFile = Resolve-Path (Join-Path $repoRoot $SetupProjectPath)
 $setupProjectDir = Split-Path -Parent $setupProjectFile
 $sidecarServiceProjectFile = Resolve-Path (Join-Path $repoRoot $SidecarServiceProjectPath)
 $sidecarServiceProjectDir = Split-Path -Parent $sidecarServiceProjectFile
-$packageName = "Webkassa.IikoFrontAdapter.Spike"
+$packageName = "Resto.Front.Api.Webkassa.V9"
 $versionFile = Join-Path $repoRoot "VERSION"
 if (-not (Test-Path $versionFile)) {
     throw "VERSION file was not found: $versionFile"
@@ -126,15 +126,21 @@ Copy-Item -Path (Join-Path $repoRoot "config/*.json") -Destination $configStageD
 
 Copy-Item -Path (Join-Path $repoRoot "scripts/install-iikofront-terminal.ps1") -Destination $stageDir
 
+$updaterStageDir = Join-Path $stageDir "updater"
+New-Item -ItemType Directory -Force -Path $updaterStageDir | Out-Null
+Copy-Item -Path (Join-Path $repoRoot "scripts/update-iikofront-terminal.ps1") -Destination $updaterStageDir
+Copy-Item -Path (Join-Path $repoRoot "scripts/install-iikofront-updater-task.ps1") -Destination $updaterStageDir
+Copy-Item -Path (Join-Path $repoRoot "scripts/new-release-manifest.ps1") -Destination $updaterStageDir
+
 $manifest = [ordered]@{
     package = $packageName
     version = $version
     builtAt = (Get-Date).ToString("o")
-    target = "iikoFront external fiscal register spike"
+    target = "iikoFront external fiscal register"
     iikoFrontApiVersion = "V9"
     iikoFrontMinVersion = "9.5"
-    iikoPluginEntryPoint = "Webkassa.IikoFrontAdapter.Spike.Plugin"
-    iikoCashRegisterFactory = "Webkassa.IikoFrontAdapter.Spike.WebkassaCashRegisterFactory"
+    iikoPluginEntryPoint = "Resto.Front.Api.Webkassa.V9.Plugin"
+    iikoCashRegisterFactory = "Resto.Front.Api.Webkassa.V9.WebkassaCashRegisterFactory"
     targetFramework = "net472"
     apiPackage = "Resto.Front.Api.V9 installed Front.Net DLL 9.5.7018"
     iikoSdk9ComplianceDoc = "docs/iikofront-sdk9-compliance.md"
@@ -166,21 +172,24 @@ $manifest = [ordered]@{
     offlineSaleReturnSyncCovered = $true
     includesSetupUtility = $true
     includesTerminalInstaller = $true
+    includesUpdater = $true
     includesSidecarService = $true
     includesSidecarRuntime = $true
     terminalInstaller = "install-iikofront-terminal.ps1"
+    updaterPackage = "updater"
+    updaterScript = "updater/update-iikofront-terminal.ps1"
     sidecarServicePackage = "sidecar-service"
     sidecarRuntimePackage = "sidecar-runtime"
-    deployStatus = "compile-level only; deploy only to demo/test iikoFront"
+    deployStatus = "beta; deploy only to approved test or pilot iikoFront terminals"
 }
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 (Join-Path $stageDir "package-manifest.json")
 Set-Content -Encoding UTF8 -Path (Join-Path $stageDir "VERSION") -Value $version
 
 @"
-Webkassa iikoFront Adapter Spike
+Resto.Front.Api.Webkassa.V9
 
-This package is compile-level only.
-Deploy it only to a demo/test iikoFront terminal.
+This package is a beta release.
+Deploy it only to approved test or pilot iikoFront terminals.
 
 Before deployment:
 - confirm iiko demo/developer license covers LicenseModuleId 21016318;
@@ -193,6 +202,7 @@ Before deployment:
 Expected first validation:
 - run install-iikofront-terminal.ps1 from an elevated PowerShell session on the target iikoFront terminal;
 - run setup\Webkassa.IikoFrontAdapter.Setup.exe --paths;
+- for manifest-driven updates, run updater\update-iikofront-terminal.ps1 from an elevated PowerShell session;
 - iikoFront loads the plugin without assembly binding errors;
 - Webkassa cash register factory appears as an available fiscal register driver;
 - no sale/return fiscalization is attempted until configuration is confirmed.

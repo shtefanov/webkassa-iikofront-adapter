@@ -163,7 +163,7 @@ function validateConfigExample() {
   assert(!JSON.stringify(adapterConfig).includes('WKD-'), 'adapter config must not contain raw API key');
 
   const version = fs.readFileSync(path.join(root, 'VERSION'), 'utf8').trim();
-  assert.match(version, /^\d+\.\d+\.\d+-(spike|alpha|beta)$/);
+  assert.match(version, /^\d+\.\d+\.\d+(?:-(?:spike|alpha|beta)(?:\.\d+)?)?$/);
   assert(fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8').includes(`## ${version}`));
 }
 
@@ -210,17 +210,41 @@ function validateSmokeScripts() {
 
   const terminalInstaller = fs.readFileSync(path.join(root, 'scripts', 'install-iikofront-terminal.ps1'), 'utf8');
   assert(terminalInstaller.includes('Run this installer from an elevated PowerShell session'), 'terminal installer must require elevated PowerShell');
-  assert(terminalInstaller.includes('Webkassa.IikoFrontAdapter.Spike.dll'), 'terminal installer must validate plugin DLL package content');
+  assert(terminalInstaller.includes('Resto.Front.Api.Webkassa.V9.dll'), 'terminal installer must validate plugin DLL package content');
   assert(terminalInstaller.includes('sidecar-service'), 'terminal installer must install the packaged sidecar service');
   assert(terminalInstaller.includes('sidecar-runtime'), 'terminal installer must install the packaged sidecar runtime');
+  assert(terminalInstaller.includes('updater'), 'terminal installer must install the packaged updater');
+  assert(terminalInstaller.includes('UpdaterRoot'), 'terminal installer output must report the updater root');
+  assert(terminalInstaller.includes('Resolve-DefaultTargetUser'), 'terminal installer must choose a local computer account instead of WORKGROUP by default');
   assert(terminalInstaller.includes('New-Service'), 'terminal installer must register the local Windows sidecar service');
   assert(terminalInstaller.includes('127.0.0.1'), 'terminal installer must keep the sidecar local-only by default');
   assert(terminalInstaller.includes('icacls'), 'terminal installer must set target iikoFront user ACLs');
   assert(terminalInstaller.includes('nkt-store'), 'terminal installer must create ACLs for the indexed NKT catalog store');
   assert(!terminalInstaller.includes('WEBKASSA_API_KEY='), 'terminal installer must not write raw Webkassa secrets');
 
+  const updaterSource = fs.readFileSync(path.join(root, 'scripts', 'update-iikofront-terminal.ps1'), 'utf8');
+  assert(updaterSource.includes('ManifestUrl must use HTTPS'), 'updater must require HTTPS manifests');
+  assert(updaterSource.includes('packageUrl must use HTTPS'), 'updater must require HTTPS packages');
+  assert(updaterSource.includes('Assert-Sha256'), 'updater must verify package SHA256');
+  assert(updaterSource.includes('install-iikofront-terminal.ps1'), 'updater must delegate installation to the terminal installer');
+  assert(updaterSource.includes('@installerParameters'), 'updater must call the terminal installer with named parameters');
+  assert(updaterSource.includes('iikoFront is running'), 'updater must refuse unsafe replacement while iikoFront is running');
+  assert(updaterSource.includes('updater-'), 'updater must write its own JSONL log');
+  assert(!updaterSource.includes('WEBKASSA_API_KEY='), 'updater must not write raw Webkassa secrets');
+
+  const updaterTaskSource = fs.readFileSync(path.join(root, 'scripts', 'install-iikofront-updater-task.ps1'), 'utf8');
+  assert(updaterTaskSource.includes('New-ScheduledTaskAction'), 'updater task installer must register a Windows scheduled task');
+  assert(updaterTaskSource.includes('IntervalMinutes must be at least 15'), 'updater task must avoid too-frequent polling');
+  assert(updaterTaskSource.includes('ManifestUrl must use HTTPS'), 'updater task must require HTTPS manifests');
+
+  const releaseManifestSource = fs.readFileSync(path.join(root, 'scripts', 'new-release-manifest.ps1'), 'utf8');
+  assert(releaseManifestSource.includes('Get-FileHash -Algorithm SHA256'), 'release manifest generator must compute package SHA256');
+  assert(releaseManifestSource.includes('PackageUrl must use HTTPS'), 'release manifest generator must require HTTPS package URLs');
+
   const packageSource = fs.readFileSync(path.join(root, 'scripts', 'package-iikofront-adapter.ps1'), 'utf8');
   assert(packageSource.includes('install-iikofront-terminal.ps1'), 'package must include the terminal installer');
+  assert(packageSource.includes('update-iikofront-terminal.ps1'), 'package must include the updater');
+  assert(packageSource.includes('includesUpdater'), 'package manifest must advertise updater support');
   assert(packageSource.includes('sidecar-service'), 'package must include sidecar service binaries');
   assert(packageSource.includes('sidecar-runtime'), 'package must include sidecar runtime files');
   assert(packageSource.includes('scripts/sidecar.js'), 'package must include the sidecar entry script');
@@ -243,16 +267,46 @@ function validateSmokeScripts() {
   assert(setupSource.includes('CleanSecret(Environment.GetEnvironmentVariable("WEBKASSA_API_KEY")'), 'setup utility must clean API key notes before DPAPI storage');
   assert(setupSource.includes('WKD-[A-Z0-9-]+'), 'setup utility must extract Webkassa API keys from Bitwarden notes');
 
-  const dpapiSource = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'DpapiFileSecretProvider.cs'), 'utf8');
+  const dpapiSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'DpapiFileSecretProvider.cs'), 'utf8');
   assert(dpapiSource.includes('GetSecretPath(secretRef, purpose)'), 'DPAPI provider must distinguish same SecretRef by purpose');
   assert(dpapiSource.includes('path = GetSecretPath(secretRef);'), 'DPAPI provider must keep fallback for older protected secrets');
   assert(dpapiSource.includes('File.Move(tempPath, path)'), 'DPAPI provider must write protected secrets through a temporary file');
 
-  const settingsDialogSource = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'WebkassaSettingsDialog.cs'), 'utf8');
+  const settingsDialogSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'WebkassaSettingsDialog.cs'), 'utf8');
   assert(settingsDialogSource.includes('nationalCatalogApiKey.Text = ResolveSecretBestEffort'), 'National Catalog API key must be restored into the masked settings field');
   assert(settingsDialogSource.includes('nationalCatalogPassword.Text = ResolveSecretBestEffort'), 'National Catalog password must be restored into the masked settings field');
   assert(settingsDialogSource.includes('SecretRefForSave('), 'settings save must rotate SecretRefs when a secret value is entered');
   assert(settingsDialogSource.includes('Guid.NewGuid()'), 'settings save must avoid overwriting stale protected secret files');
+}
+
+function validateReleaseAndUpdaterDocs() {
+  const betaManifest = readJson('config/update-manifest.beta.example.json');
+  const stableManifest = readJson('config/update-manifest.stable.example.json');
+  assert.strictEqual(betaManifest.channel, 'beta');
+  assert.strictEqual(stableManifest.channel, 'stable');
+  assert(betaManifest.packageUrl.startsWith('https://'), 'beta update manifest must use HTTPS packageUrl');
+  assert(stableManifest.packageUrl.startsWith('https://'), 'stable update manifest must use HTTPS packageUrl');
+  assert(betaManifest.releaseNotesUrl.startsWith('https://'), 'beta update manifest must use HTTPS release notes URL');
+  assert(stableManifest.releaseNotesUrl.startsWith('https://'), 'stable update manifest must use HTTPS release notes URL');
+  assert.strictEqual(betaManifest.minIikoFrontApiVersion, 'V9');
+  assert.strictEqual(stableManifest.minIikoFrontApiVersion, 'V9');
+  assert(!JSON.stringify(betaManifest).includes('WKD-'), 'beta update manifest example must not include raw API keys');
+  assert(!JSON.stringify(stableManifest).includes('WKD-'), 'stable update manifest example must not include raw API keys');
+
+  const updaterDoc = fs.readFileSync(path.join(root, 'docs', 'updater.md'), 'utf8');
+  assert(updaterDoc.includes('beta.json'), 'updater docs must document beta manifest URL');
+  assert(updaterDoc.includes('stable.json'), 'updater docs must document stable manifest URL');
+  assert(updaterDoc.includes('-DryRun'), 'updater docs must document dry-run validation');
+  assert(updaterDoc.includes('SHA256'), 'updater docs must document checksum verification');
+
+  const githubReleaseDoc = fs.readFileSync(path.join(root, 'docs', 'github-releases.md'), 'utf8');
+  assert(githubReleaseDoc.includes('released to `beta` first'), 'GitHub release docs must require beta first');
+  assert(githubReleaseDoc.includes('Promotion to `stable`'), 'GitHub release docs must document stable promotion');
+  assert(githubReleaseDoc.includes('known issues'), 'GitHub release notes must include known issues');
+  assert(githubReleaseDoc.includes('rollback notes'), 'GitHub release notes must include rollback notes');
+
+  const releaseConfig = fs.readFileSync(path.join(root, '.github', 'release.yml'), 'utf8');
+  assert(releaseConfig.includes('Release and updater'), 'GitHub release config must categorize release/updater changes');
 }
 
 function validateIikoNktRegistry() {
@@ -401,13 +455,13 @@ function restoreEnvValue(name, value) {
 }
 
 function validateIikoFrontSdk9Compliance() {
-  const csproj = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'Webkassa.IikoFrontAdapter.Spike.csproj'), 'utf8');
+  const csproj = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'Resto.Front.Api.Webkassa.V9.csproj'), 'utf8');
   const version = fs.readFileSync(path.join(root, 'VERSION'), 'utf8').trim();
   assert(csproj.includes('<TargetFramework>net472</TargetFramework>'), 'iikoFront adapter must target .NET Framework 4.7.2');
   assert(csproj.includes('Resto.Front.Api.V9'), 'iikoFront adapter must reference API V9');
   assert(csproj.includes(`<InformationalVersion>${version}</InformationalVersion>`), 'iikoFront adapter version must match project release');
 
-  const pluginSource = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'Plugin.cs'), 'utf8');
+  const pluginSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'Plugin.cs'), 'utf8');
   assert(pluginSource.includes('IFrontPlugin'), 'plugin entry point must implement IFrontPlugin');
   assert(pluginSource.includes('MarshalByRefObject'), 'plugin entry point must inherit MarshalByRefObject for iiko IPC');
   assert(pluginSource.includes('RegisterCashRegisterFactory'), 'plugin must register ICashRegisterFactory');
@@ -417,11 +471,14 @@ function validateIikoFrontSdk9Compliance() {
   assert(pluginSource.includes('AddButtonToPaymentScreen'), 'plugin must add a checked payment-screen button for optional fiscal receipt printing');
   assert(pluginSource.includes('UpdatePaymentScreenButtonState'), 'payment print button must update checked state');
   assert(pluginSource.includes('AddButtonToClosedOrderScreen'), 'plugin must add a closed-order Webkassa receipt print button');
+  assert(pluginSource.includes('AddButtonToProductsReturnScreen'), 'plugin must add a return-screen Webkassa receipt print toggle button');
+  assert(pluginSource.includes('OnReturnPrintToggle'), 'return-screen print button must toggle auto-print instead of replaying an old receipt');
   assert(pluginSource.includes('FindTicketsByOrderId(orderId)'), 'closed-order print button must look up existing fiscal tickets by order id');
+  assert(pluginSource.includes('returnButtonRegistration.Dispose()'), 'plugin must unregister return-screen print button on Dispose');
   assert(pluginSource.includes('cashRegisterFactoryRegistration.Dispose()'), 'plugin must unregister factory on Dispose');
   assert(pluginSource.includes('PluginLicenseModuleId(ReleaseInfo.IikoLicenseModuleId)'), 'plugin must use the configured iiko LicenseModuleId');
 
-  const receiptPrinterSource = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'WebkassaReceiptPrinter.cs'), 'utf8');
+  const receiptPrinterSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'WebkassaReceiptPrinter.cs'), 'utf8');
   assert(receiptPrinterSource.includes('TryGetReceiptChequePrinter'), 'receipt printing must prefer iiko receipt cheque printer');
   assert(receiptPrinterSource.includes('GetTicketPrintFormat'), 'fiscal receipt printing must use official Webkassa Ticket/PrintFormat');
   assert(receiptPrinterSource.includes('PrintReport'), 'X/Z reports must be printable through the shared Webkassa printer path');
@@ -436,13 +493,13 @@ function validateIikoFrontSdk9Compliance() {
   assert(receiptPrinterSource.includes('QrCodeRenderer.Render'), 'Windows PDF fallback must use the built-in QR renderer');
   assert(!receiptPrinterSource.includes('QR: {line.Value}'), 'Windows PDF fallback must not print QR payloads as plain text');
 
-  const qrRendererSource = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'QrCodeRenderer.cs'), 'utf8');
+  const qrRendererSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'QrCodeRenderer.cs'), 'utf8');
   assert(qrRendererSource.includes('Encoding.UTF8.GetBytes'), 'QR renderer must encode Webkassa QR values as UTF-8 byte mode');
   assert(qrRendererSource.includes('ReedSolomon.ComputeRemainder'), 'QR renderer must generate Reed-Solomon error correction');
   assert(qrRendererSource.includes('quietZone = 4'), 'QR renderer must preserve the standard QR quiet zone');
   assert(qrRendererSource.includes('GetPenaltyScore'), 'QR renderer must choose a QR mask using penalty scoring');
 
-  const settingsDialogSource = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'WebkassaSettingsDialog.cs'), 'utf8');
+  const settingsDialogSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'WebkassaSettingsDialog.cs'), 'utf8');
   assert(settingsDialogSource.includes('DataProtectionScope.LocalMachine'), 'settings dialog must save secrets in machine-scope DPAPI for the sidecar service');
   assert(settingsDialogSource.includes('new TabControl'), 'settings dialog must use tabs');
   assert(settingsDialogSource.includes('loggingRetentionDays'), 'settings dialog must expose log retention days');
@@ -485,7 +542,7 @@ function validateIikoFrontSdk9Compliance() {
   assert(settingsDialogSource.includes('DrawPasswordRevealIcon'), 'settings dialog password reveal must use an icon button');
   assert(settingsDialogSource.includes('NON_JSON_RESPONSE'), 'settings dialog connection test must report non-JSON Webkassa responses without serializer internals');
 
-  const sidecarClientSource = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'SidecarClient.cs'), 'utf8');
+  const sidecarClientSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'SidecarClient.cs'), 'utf8');
   assert(sidecarClientSource.includes('[DataMember(Name = "allowOffline")]'), 'sidecar runtime must expose allowOffline');
   assert(sidecarClientSource.includes('AllowOffline = Configuration.Offline != null && Configuration.Offline.Enabled'), 'iikoFront adapter must enable offline queueing when configured');
   assert(sidecarClientSource.includes('[DataMember(Name = "queuedOffline")]'), 'sidecar fiscal result must expose queuedOffline');
@@ -494,7 +551,7 @@ function validateIikoFrontSdk9Compliance() {
   assert(sidecarClientSource.includes('PaperKind = printing.PaperKind'), 'Ticket/PrintFormat must pass configured paper kind');
   assert(sidecarClientSource.includes('AcceptLanguage = printing.AcceptLanguage'), 'Ticket/PrintFormat must pass configured Accept-Language');
 
-  const cashRegisterSource = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'WebkassaCashRegister.cs'), 'utf8');
+  const cashRegisterSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'WebkassaCashRegister.cs'), 'utf8');
   assert(cashRegisterSource.includes('ICashRegister'), 'cash register must implement ICashRegister');
   assert(cashRegisterSource.includes('DoCheque('), 'cash register must implement DoCheque');
   assert(cashRegisterSource.includes('IOperationDataContext context'), 'DoCheque must use SDK 9 signature');
@@ -546,7 +603,7 @@ function validateIikoFrontSdk9Compliance() {
   assert(sidecarClientSource.includes('operatorDiagnostic'), 'sidecar client must deserialize operator diagnostics from sidecar errors');
   assert(sidecarClientSource.includes('SidecarOperatorDiagnostic'), 'sidecar client must expose structured operator diagnostics');
 
-  const adapterConfigSource = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'AdapterConfiguration.cs'), 'utf8');
+  const adapterConfigSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'AdapterConfiguration.cs'), 'utf8');
   assert(adapterConfigSource.includes('detectEncodingFromByteOrderMarks: true'), 'adapter config loader must accept BOM-encoded Windows JSON');
   assert(adapterConfigSource.includes('Encoding.UTF8.GetBytes(json)'), 'adapter config loader must normalize JSON to UTF-8 before deserialization');
   assert(adapterConfigSource.includes('PaperKind == 0'), 'adapter config must allow Webkassa 80mm paper kind');
@@ -562,7 +619,7 @@ function validateIikoFrontSdk9Compliance() {
   assert(adapterConfigSource.includes('NormalizeForRuntime'), 'adapter config must normalize missing sections from older deployed configs');
   assert(adapterConfigSource.includes('LicenseMonitoring = configuration.LicenseMonitoring ?? new AdapterLicenseMonitoringOptions()'), 'redacted config saves must preserve license monitoring settings');
 
-  const nktDraftExporterSource = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'NationalCatalogDraftExporter.cs'), 'utf8');
+  const nktDraftExporterSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'NationalCatalogDraftExporter.cs'), 'utf8');
   assert(nktDraftExporterSource.includes('mode') && nktDraftExporterSource.includes('dry_run'), 'National Catalog draft exporter must write dry-run mode');
   assert(nktDraftExporterSource.includes('draft_ready'), 'National Catalog draft exporter must mark ready drafts');
   assert(nktDraftExporterSource.includes('needs_review'), 'National Catalog draft exporter must mark records needing review');
@@ -576,14 +633,14 @@ function validateIikoFrontSdk9Compliance() {
   assert(nktDraftExporterSource.includes('rule?.MeasureName, NamedObject(product.MeasuringUnit), autoFill.DefaultMeasureName'), 'National Catalog drafts must prefer the iiko product-card measure over the fallback default measure');
   assert(!nktDraftExporterSource.includes('HttpClient'), 'National Catalog draft/batch exporter must not submit product requests yet');
 
-  const dictionaryCacheSource = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'NationalCatalogDictionaryCache.cs'), 'utf8');
+  const dictionaryCacheSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'NationalCatalogDictionaryCache.cs'), 'utf8');
   assert(dictionaryCacheSource.includes('/portal/api/v1/dictionaries'), 'National Catalog dictionary cache must read dictionaries endpoint');
   assert(dictionaryCacheSource.includes('/portal/api/v1/products/requests/attributes'), 'National Catalog dictionary cache must read request attributes endpoint');
   assert(dictionaryCacheSource.includes('X-API-KEY'), 'National Catalog dictionary cache must authenticate with X-API-KEY');
   assert(dictionaryCacheSource.includes('nkt-cache'), 'National Catalog dictionary cache must write to a predictable cache folder');
   assert(!dictionaryCacheSource.includes('PostAsync'), 'National Catalog dictionary cache must remain read-only');
 
-  const syncQueueSource = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'NationalCatalogSyncQueue.cs'), 'utf8');
+  const syncQueueSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'NationalCatalogSyncQueue.cs'), 'utf8');
   assert(syncQueueSource.includes('nkt-sync-state.json'), 'National Catalog sync queue must persist request state locally');
   assert(syncQueueSource.includes('NktCatalogStore.RebuildFromState'), 'National Catalog sync queue must rebuild the compact NKT lookup index after state writes');
   assert(syncQueueSource.includes('NktCatalogStore.TryFindIdentifier'), 'National Catalog sync queue must use the indexed NKT lookup for fiscal enrichment');
@@ -599,7 +656,7 @@ function validateIikoFrontSdk9Compliance() {
   assert(syncQueueSource.includes('/portal/api/v1/products/requests/{id}/moderation') || syncQueueSource.includes('/moderation'), 'National Catalog sync queue must request moderation after creating a request');
   assert(syncQueueSource.includes('payloadHash'), 'National Catalog sync queue must track payload hashes to avoid duplicate submissions');
 
-  const nktCatalogStoreSource = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'NktCatalogStore.cs'), 'utf8');
+  const nktCatalogStoreSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'NktCatalogStore.cs'), 'utf8');
   assert(nktCatalogStoreSource.includes('nkt-store'), 'NKT catalog store must use a dedicated storage folder');
   assert(nktCatalogStoreSource.includes('nkt-catalog-index.json'), 'NKT catalog store must maintain a compact identifier index');
   assert(nktCatalogStoreSource.includes('Dictionary<string, NktCatalogIndexRecord>'), 'NKT catalog store must maintain in-memory lookup dictionaries');
@@ -609,43 +666,43 @@ function validateIikoFrontSdk9Compliance() {
   assert(nktCatalogStoreSource.includes('ProductIdLookupCount'), 'NKT catalog status must report product-id lookup size');
   assert(nktCatalogStoreSource.includes('NumberLookupCount'), 'NKT catalog status must report article lookup size');
 
-  const enricherSource = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'NktIdentifierEnricher.cs'), 'utf8');
+  const enricherSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'NktIdentifierEnricher.cs'), 'utf8');
   assert(enricherSource.includes('NationalCatalogSyncQueue.TryFindIdentifier'), 'fiscal NKT enrichment must read identifiers from the local queue');
   assert(cashRegisterSource.includes('NktIdentifierEnricher.Enrich(draft)'), 'DoCheque must enrich draft positions with local NKT identifiers before sidecar fiscalization');
 
-  const nktWarmupPluginSource = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'Plugin.cs'), 'utf8');
+  const nktWarmupPluginSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'Plugin.cs'), 'utf8');
   assert(nktWarmupPluginSource.includes('ThreadPool.QueueUserWorkItem'), 'plugin startup must warm NKT index outside the payment path');
   assert(nktWarmupPluginSource.includes('WarmUpNktIndexBestEffort'), 'plugin startup must warm NKT index best-effort');
 
-  const nktSettingsSource = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'WebkassaSettingsDialog.cs'), 'utf8');
+  const nktSettingsSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'WebkassaSettingsDialog.cs'), 'utf8');
   assert(nktSettingsSource.includes('Статус индекса НКТ'), 'NKT settings tab must expose index diagnostics');
   assert(nktSettingsSource.includes('ShowNktIndexStatus'), 'NKT settings tab must show index status');
   assert(nktSettingsSource.includes('NationalCatalogSyncQueue.GetIndexStatus(warmUp: true)'), 'NKT index diagnostics must warm the index before reporting status');
 
-  const draftSource = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'IikoChequeDraft.cs'), 'utf8');
+  const draftSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'IikoChequeDraft.cs'), 'utf8');
   assert(draftSource.includes('[DataContract]'), 'IikoChequeDraft must be serializable for sidecar JSON');
   assert(draftSource.includes('[DataMember(Name = "positions")]'), 'IikoChequeDraft positions must have stable JSON name');
   assert(draftSource.includes('[DataMember(Name = "nkt")]'), 'IikoChequeDraft positions must serialize local NKT identifiers');
 
-  const releaseInfo = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'ReleaseInfo.cs'), 'utf8');
+  const releaseInfo = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'ReleaseInfo.cs'), 'utf8');
   assert(releaseInfo.includes('IikoFrontApiVersion = "V9"'), 'release metadata must record iiko API V9');
   assert(releaseInfo.includes('IikoFrontMinVersion = "9.5"'), 'release metadata must record iikoFront minimum version');
   assert(releaseInfo.includes('IikoLicenseModuleId = 21016318'), 'release metadata must record the interim iiko LicenseModuleId');
   assert(releaseInfo.includes('LicenseModuleIdStatus = "interim-assigned"'), 'release metadata must mark assigned interim iiko LicenseModuleId');
 
-  const manifest = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'Manifest.xml'), 'utf8');
+  const manifest = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'Manifest.xml'), 'utf8');
   assert(manifest.includes('<Manifest '), 'Manifest.xml must use iikoFront Manifest root');
-  assert(manifest.includes('<FileName>Webkassa.IikoFrontAdapter.Spike.dll</FileName>'), 'Manifest.xml must point to the plugin DLL');
-  assert(manifest.includes('<TypeName>Webkassa.IikoFrontAdapter.Spike.Plugin</TypeName>'), 'Manifest.xml must point to the plugin entry point');
+  assert(manifest.includes('<FileName>Resto.Front.Api.Webkassa.V9.dll</FileName>'), 'Manifest.xml must point to the plugin DLL');
+  assert(manifest.includes('<TypeName>Resto.Front.Api.Webkassa.V9.Plugin</TypeName>'), 'Manifest.xml must point to the plugin entry point');
   assert(manifest.includes('<ApiVersion>V9</ApiVersion>'), 'Manifest.xml must declare API V9');
   assert(manifest.includes('<IsSingleInstance>true</IsSingleInstance>'), 'Manifest.xml must declare single-instance loading');
   assert(manifest.includes('<LicenseModuleId>21016318</LicenseModuleId>'), 'Manifest.xml must match PluginLicenseModuleId');
   assert(!manifest.includes('<Version>'), 'iikoFront Manifest.xml must not include unsupported Version element');
 
-  const manifestTemplate = fs.readFileSync(path.join(root, 'src', 'Webkassa.IikoFrontAdapter.Spike', 'Manifest.xml.template'), 'utf8');
+  const manifestTemplate = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'Manifest.xml.template'), 'utf8');
   assert(manifestTemplate.includes('PENDING-IIKO-LICENSE-MODULE-ID'), 'manifest template must not use a fake iiko module id');
   assert(manifestTemplate.includes('<ApiVersion>V9</ApiVersion>'), 'manifest template must document API V9');
-  assert(manifestTemplate.includes('<FileName>Webkassa.IikoFrontAdapter.Spike.dll</FileName>'), 'manifest template must document the plugin DLL');
+  assert(manifestTemplate.includes('<FileName>Resto.Front.Api.Webkassa.V9.dll</FileName>'), 'manifest template must document the plugin DLL');
 
   const complianceDoc = fs.readFileSync(path.join(root, 'docs', 'iikofront-sdk9-compliance.md'), 'utf8');
   assert(complianceDoc.includes('ICashRegisterFactory'), 'compliance doc must cover factory registration');
@@ -2035,6 +2092,7 @@ validateSaleTemplate();
 validateReturnTemplate();
 validateConfigExample();
 validateSmokeScripts();
+validateReleaseAndUpdaterDocs();
 validateSidecarEnvSecrets();
 validateIikoFrontSdk9Compliance();
 validateIikoNktRegistry();

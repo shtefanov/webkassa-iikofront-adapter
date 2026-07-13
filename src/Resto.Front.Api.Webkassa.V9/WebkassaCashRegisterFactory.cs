@@ -2,7 +2,7 @@ using System;
 using Resto.Front.Api.Data.Device.Settings;
 using Resto.Front.Api.Devices;
 
-namespace Webkassa.IikoFrontAdapter.Spike;
+namespace Resto.Front.Api.Webkassa.V9;
 
 public sealed class WebkassaCashRegisterFactory : MarshalByRefObject, ICashRegisterFactory
 {

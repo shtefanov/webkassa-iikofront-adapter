@@ -1,6 +1,6 @@
 using System;
 
-namespace Webkassa.IikoFrontAdapter.Spike;
+namespace Resto.Front.Api.Webkassa.V9;
 
 public interface ISecretProvider
 {

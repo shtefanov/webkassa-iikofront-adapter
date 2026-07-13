@@ -17,7 +17,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using Resto.Front.Api;
 
-namespace Webkassa.IikoFrontAdapter.Spike;
+namespace Resto.Front.Api.Webkassa.V9;
 
 public static class WebkassaSettingsDialog
 {

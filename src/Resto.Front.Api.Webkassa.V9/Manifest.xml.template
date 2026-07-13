@@ -11,8 +11,8 @@
   attribute to match. Fake/sample ids must not be used.
 -->
 <Manifest xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <FileName>Webkassa.IikoFrontAdapter.Spike.dll</FileName>
-  <TypeName>Webkassa.IikoFrontAdapter.Spike.Plugin</TypeName>
+  <FileName>Resto.Front.Api.Webkassa.V9.dll</FileName>
+  <TypeName>Resto.Front.Api.Webkassa.V9.Plugin</TypeName>
   <ApiVersion>V9</ApiVersion>
   <IsSingleInstance>true</IsSingleInstance>
   <LicenseModuleId>PENDING-IIKO-LICENSE-MODULE-ID</LicenseModuleId>

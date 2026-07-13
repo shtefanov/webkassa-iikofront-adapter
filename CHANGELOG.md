@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.11.45-beta - 13-07-2026
+
+- Renamed the iikoFront plugin release identity from
+  `Webkassa.IikoFrontAdapter.Spike` to `Resto.Front.Api.Webkassa.V9`.
+- Updated the package name, DLL name, manifest entry point, plugin install
+  folder, updater version lookup, docs, and contract tests for the new release
+  identity.
+- Added installer migration backup for the legacy
+  `Webkassa.IikoFrontAdapter.Spike` plugin folder so terminals do not keep both
+  plugin identities after update.
+
+## 0.11.45-beta - 13-07-2026
+
+- Added a manifest-driven Windows updater MVP for beta/stable channel updates.
+- Added update manifest generation and example beta/stable manifests for
+  `iiko-plugin.kz`.
+- Included updater scripts in the iikoFront package output and terminal install
+  layout.
+- Improved the terminal installer default ACL account resolution for local
+  Windows workgroup machines.
+- Documented the GitHub Release flow: changes land in beta first, then promote
+  to stable only after the full regression checklist passes.
+
+## 0.11.43-beta - 13-07-2026
+
+- Added a dedicated iikoFront products-return screen Webkassa print toggle.
+- Return-screen `Печать Webkassa чека` now requests printing of the future
+  return fiscal receipt instead of replay-printing the original closed-order
+  receipt.
+
 ## 0.11.42-beta - 13-07-2026
 
 - Added a password reveal icon button to the Webkassa settings password field.

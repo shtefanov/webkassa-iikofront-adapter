@@ -7,7 +7,7 @@ using System.Text;
 using Resto.Front.Api;
 using Resto.Front.Api.Data.Assortment;
 
-namespace Webkassa.IikoFrontAdapter.Spike;
+namespace Resto.Front.Api.Webkassa.V9;
 
 public sealed class IikoProductCatalogExportResult
 {

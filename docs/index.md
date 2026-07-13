@@ -19,6 +19,7 @@
 - [SDK 9 compliance](iikofront-sdk9-compliance.md)
 - [Terminal install](iikofront-terminal-install.md)
 - [Windows deployment layout](windows-deployment-layout.md)
+- [Updater](updater.md)
 
 ## Webkassa and Fiscal Flow
 
@@ -42,6 +43,7 @@
 - [Release versioning](release-versioning.md)
 - [Release channels](release-channels.md)
 - [Release checklist](release-checklist.md)
+- [GitHub releases](github-releases.md)
 - [GitHub contributing guide](../CONTRIBUTING.md)
 - [Security policy](../SECURITY.md)
 - [Support policy](../SUPPORT.md)

@@ -11,7 +11,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using Resto.Front.Api;
 
-namespace Webkassa.IikoFrontAdapter.Spike;
+namespace Resto.Front.Api.Webkassa.V9;
 
 public sealed class NationalCatalogSyncResult
 {

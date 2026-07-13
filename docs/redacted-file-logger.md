@@ -12,7 +12,7 @@ leak secrets.
 - `src/redacted-file-logger.js`
 - `scripts/sidecar.js`
 - `tools/Webkassa.Sidecar.WindowsService/Program.cs`
-- `src/Webkassa.IikoFrontAdapter.Spike/WebkassaSettingsDialog.cs`
+- `src/Resto.Front.Api.Webkassa.V9/WebkassaSettingsDialog.cs`
 - `tests/contract/webkassa-contract.test.js`
 
 ## Behavior

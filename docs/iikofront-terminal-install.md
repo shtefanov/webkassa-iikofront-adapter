@@ -7,7 +7,7 @@ iikoFront is already installed.
 
 The package must include:
 
-- `Webkassa.IikoFrontAdapter.Spike.dll` and plugin files;
+- `Resto.Front.Api.Webkassa.V9.dll` and plugin files;
 - `setup/Webkassa.IikoFrontAdapter.Setup.exe`;
 - `sidecar-service/Webkassa.Sidecar.WindowsService.exe`;
 - `sidecar-runtime/scripts/sidecar.js`;

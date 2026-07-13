@@ -30,7 +30,7 @@ The sidecar owns:
 ## Current Code
 
 - `src/sidecar-server.js`
-- `src/Webkassa.IikoFrontAdapter.Spike/SidecarClient.cs`
+- `src/Resto.Front.Api.Webkassa.V9/SidecarClient.cs`
 
 Current endpoints:
 
@@ -127,7 +127,7 @@ Successful response:
 ```json
 {
   "ok": true,
-  "version": "0.10.0-spike",
+  "version": "0.11.45-beta",
   "protocolVersion": "2.0.3",
   "writeFiscalData": true,
   "offlineAutonomousHours": 72,

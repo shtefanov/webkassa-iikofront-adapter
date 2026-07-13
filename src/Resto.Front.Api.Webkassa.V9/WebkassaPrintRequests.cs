@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Webkassa.IikoFrontAdapter.Spike;
+namespace Resto.Front.Api.Webkassa.V9;
 
 public static class WebkassaPrintRequests
 {

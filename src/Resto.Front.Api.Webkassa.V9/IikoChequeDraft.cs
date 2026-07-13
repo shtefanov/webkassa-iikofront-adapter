@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
 
-namespace Webkassa.IikoFrontAdapter.Spike;
+namespace Resto.Front.Api.Webkassa.V9;
 
 [DataContract]
 public sealed class IikoChequeDraft

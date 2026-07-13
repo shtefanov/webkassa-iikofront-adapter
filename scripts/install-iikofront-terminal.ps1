@@ -58,6 +58,18 @@ function Copy-CleanDirectory([string]$Source, [string]$Destination) {
     Copy-Item -Path (Join-Path $Source "*") -Destination $Destination -Recurse -Force
 }
 
+function Resolve-DefaultTargetUser {
+    if (-not [string]::IsNullOrWhiteSpace($env:USERDOMAIN) -and $env:USERDOMAIN -ne "WORKGROUP") {
+        return "$env:USERDOMAIN\$env:USERNAME"
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:COMPUTERNAME)) {
+        return "$env:COMPUTERNAME\$env:USERNAME"
+    }
+
+    return $env:USERNAME
+}
+
 if (-not (Test-IsAdmin)) {
     throw "Run this installer from an elevated PowerShell session."
 }
@@ -69,12 +81,14 @@ if ([string]::IsNullOrWhiteSpace($version)) {
     throw "Package VERSION is empty."
 }
 
-$pluginDll = Resolve-RequiredPath (Join-Path $packageRootPath "Webkassa.IikoFrontAdapter.Spike.dll") "Plugin DLL"
+$pluginDll = Resolve-RequiredPath (Join-Path $packageRootPath "Resto.Front.Api.Webkassa.V9.dll") "Plugin DLL"
 $setupExe = Resolve-RequiredPath (Join-Path $packageRootPath "setup\Webkassa.IikoFrontAdapter.Setup.exe") "Setup utility"
 $sidecarServiceSource = Resolve-RequiredPath (Join-Path $packageRootPath "sidecar-service") "Sidecar service package"
 $sidecarRuntimeSource = Resolve-RequiredPath (Join-Path $packageRootPath "sidecar-runtime") "Sidecar runtime package"
+$updaterSource = Resolve-RequiredPath (Join-Path $packageRootPath "updater") "Updater package"
 Resolve-RequiredPath (Join-Path $sidecarRuntimeSource "scripts\sidecar.js") "Sidecar script" | Out-Null
 Resolve-RequiredPath (Join-Path $sidecarRuntimeSource "src\sidecar-server.js") "Sidecar runtime source" | Out-Null
+Resolve-RequiredPath (Join-Path $updaterSource "update-iikofront-terminal.ps1") "Updater script" | Out-Null
 
 if (-not (Test-Path $NodePath)) {
     throw "Node.js was not found at $NodePath. Install Node.js on the terminal or pass -NodePath."
@@ -86,13 +100,17 @@ if (-not (Test-Path $IikoFrontPluginsRoot)) {
 
 $targetUser = $IikoFrontUser
 if ([string]::IsNullOrWhiteSpace($targetUser)) {
-    $targetUser = "$env:USERDOMAIN\$env:USERNAME"
+    $targetUser = Resolve-DefaultTargetUser
 }
 
-$pluginPath = Join-Path $IikoFrontPluginsRoot "Webkassa.IikoFrontAdapter.Spike"
+$pluginPath = Join-Path $IikoFrontPluginsRoot "Resto.Front.Api.Webkassa.V9"
+$legacyPluginPaths = @(
+    (Join-Path $IikoFrontPluginsRoot "Webkassa.IikoFrontAdapter.Spike")
+)
 $backupRoot = Join-Path $ProgramDataRoot "backups"
 $sidecarServiceInstallRoot = Join-Path $InstallRoot "sidecar-service"
 $sidecarRuntimeInstallRoot = Join-Path $InstallRoot "sidecar-runtime"
+$updaterInstallRoot = Join-Path $InstallRoot "updater"
 $configDir = Join-Path $ProgramDataRoot "config"
 $configPath = Join-Path $configDir "webkassa-adapter.config.json"
 $logsDir = Join-Path $ProgramDataRoot "logs"
@@ -147,8 +165,18 @@ if ($existingService -and $existingService.Status -ne "Stopped") {
 if (Test-Path $pluginPath) {
     New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
     $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-    $backupPath = Join-Path $backupRoot "Webkassa.IikoFrontAdapter.Spike-$stamp"
+    $backupPath = Join-Path $backupRoot "Resto.Front.Api.Webkassa.V9-$stamp"
     Move-Item -LiteralPath $pluginPath -Destination $backupPath
+}
+
+foreach ($legacyPluginPath in $legacyPluginPaths) {
+    if (Test-Path $legacyPluginPath) {
+        New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
+        $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        $legacyName = Split-Path -Leaf $legacyPluginPath
+        $backupPath = Join-Path $backupRoot "$legacyName-$stamp"
+        Move-Item -LiteralPath $legacyPluginPath -Destination $backupPath
+    }
 }
 
 New-Item -ItemType Directory -Force -Path $pluginPath | Out-Null
@@ -158,6 +186,7 @@ Get-ChildItem -Path $packageRootPath -File |
 
 Copy-CleanDirectory -Source $sidecarServiceSource -Destination $sidecarServiceInstallRoot
 Copy-CleanDirectory -Source $sidecarRuntimeSource -Destination $sidecarRuntimeInstallRoot
+Copy-CleanDirectory -Source $updaterSource -Destination $updaterInstallRoot
 
 $serviceExe = Join-Path $sidecarServiceInstallRoot "Webkassa.Sidecar.WindowsService.exe"
 Resolve-RequiredPath $serviceExe "Sidecar service executable" | Out-Null
@@ -198,6 +227,7 @@ $installedVersion = (Get-Content -Raw -LiteralPath (Join-Path $pluginPath "VERSI
     SidecarService = $ServiceName
     SidecarServiceStatus = $service.Status.ToString()
     SidecarRuntimeRoot = $sidecarRuntimeInstallRoot
+    UpdaterRoot = $updaterInstallRoot
     SetupUtility = $setupExe
 } | Format-List
 

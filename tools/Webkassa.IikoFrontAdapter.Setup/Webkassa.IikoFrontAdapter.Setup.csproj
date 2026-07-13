@@ -12,6 +12,6 @@
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Security" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" PrivateAssets="All" />
-    <ProjectReference Include="..\..\src\Webkassa.IikoFrontAdapter.Spike\Webkassa.IikoFrontAdapter.Spike.csproj" />
+    <ProjectReference Include="..\..\src\Resto.Front.Api.Webkassa.V9\Resto.Front.Api.Webkassa.V9.csproj" />
   </ItemGroup>
 </Project>

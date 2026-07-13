@@ -8,7 +8,7 @@ The adapter targets the current stable iikoFront API line used by iikoRMS 9.5+:
 - API package/reference: installed `Front.Net\Resto.Front.Api.V9.dll`
   `9.5.7018.0` on the Windows iikoFront 9.5 VM
 - Target framework: `.NET Framework 4.7.2` / `net472`
-- Plugin entry point: `Webkassa.IikoFrontAdapter.Spike.Plugin`
+- Plugin entry point: `Resto.Front.Api.Webkassa.V9.Plugin`
 - Device model: external fiscal register through `ICashRegisterFactory` + `ICashRegister`
 - Webkassa protocol: `2.0.3` only
 
@@ -16,7 +16,7 @@ The adapter targets the current stable iikoFront API line used by iikoRMS 9.5+:
 
 | Requirement | Implementation |
 | --- | --- |
-| Plugin assembly targets .NET Framework 4.7.2 | `src/Webkassa.IikoFrontAdapter.Spike/Webkassa.IikoFrontAdapter.Spike.csproj` uses `TargetFramework=net472`. |
+| Plugin assembly targets .NET Framework 4.7.2 | `src/Resto.Front.Api.Webkassa.V9/Resto.Front.Api.Webkassa.V9.csproj` uses `TargetFramework=net472`. |
 | Plugin entry point implements `IFrontPlugin` and has public parameterless constructor | `Plugin` implements `IFrontPlugin`; constructor registers the cash-register factory. |
 | IPC boundary uses MarshalByRefObject where iikoFront calls plugin objects by reference | `Plugin`, `WebkassaCashRegisterFactory`, and `WebkassaCashRegister` inherit `MarshalByRefObject`. |
 | External fiscal register registers `ICashRegisterFactory` through `PluginContext.Operations.RegisterCashRegisterFactory` | `Plugin` stores the returned `IDisposable` registration and disposes it on unload. |
@@ -46,7 +46,7 @@ Current spike uses `ReleaseInfo.IikoLicenseModuleId = 21016318`. Before any wide
 1. Receive iiko demo access and developer/plugin license.
 2. Confirm `LicenseModuleId=21016318` is valid for the target demo/developer license.
 3. Confirm `[PluginLicenseModuleId(...)]` and `Manifest.xml` both contain `21016318`.
-4. Use `src/Webkassa.IikoFrontAdapter.Spike/Manifest.xml` for package load tests.
+4. Use `src/Resto.Front.Api.Webkassa.V9/Manifest.xml` for package load tests.
 5. Confirm package folder under `C:\Program Files\iiko\iikoRMS\Front.Net\Plugins`.
 6. Load only on demo/test iikoFront; do not install into production terminals.
 
@@ -99,7 +99,7 @@ Current spike uses `ReleaseInfo.IikoLicenseModuleId = 21016318`. Before any wide
   - X-report and Z-report returned HTTP `200`.
 - Local terminal sidecar validation passed with `0.11.6-beta`:
   - package loaded in iikoFront 9.5 logs as
-    `Webkassa.IikoFrontAdapter.Spike v0.11.6-beta`;
+    `Resto.Front.Api.Webkassa.V9 v0.11.6-beta`;
   - sidecar service `WebkassaIikoFrontSidecar` returned `version=0.11.6`;
   - local sidecar sale check `1780350370835`, shift `3`;
   - local sidecar return check `1780350371036`, shift `3`;

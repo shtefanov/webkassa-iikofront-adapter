@@ -8,7 +8,7 @@ using Resto.Front.Api.Attributes;
 using Resto.Front.Api.Devices;
 using Resto.Front.Api.UI;
 
-namespace Webkassa.IikoFrontAdapter.Spike;
+namespace Resto.Front.Api.Webkassa.V9;
 
 [PluginLicenseModuleId(ReleaseInfo.IikoLicenseModuleId)]
 public sealed class Plugin : MarshalByRefObject, IFrontPlugin
@@ -21,6 +21,7 @@ public sealed class Plugin : MarshalByRefObject, IFrontPlugin
     private readonly IDisposable cashRegisterFactoryRegistration;
     private readonly IDisposable settingsButtonRegistration;
     private readonly IDisposable closedOrderButtonRegistration;
+    private readonly IDisposable returnButtonRegistration;
     private readonly IDisposable paymentButtonRegistration;
     private bool disposed;
 
@@ -39,6 +40,9 @@ public sealed class Plugin : MarshalByRefObject, IFrontPlugin
             PrintTicketCaption,
             OnClosedOrderPrintButton,
             PrintIconGeometry);
+        returnButtonRegistration = PluginContext.Operations.AddButtonToProductsReturnScreen(
+            PrintTicketCaption,
+            OnReturnPrintToggle);
         var paymentButton = PluginContext.Operations.AddButtonToPaymentScreen(
             PaymentPrintCaption,
             isChecked: false,
@@ -57,6 +61,7 @@ public sealed class Plugin : MarshalByRefObject, IFrontPlugin
 
         disposed = true;
         paymentButtonRegistration.Dispose();
+        returnButtonRegistration.Dispose();
         closedOrderButtonRegistration.Dispose();
         settingsButtonRegistration.Dispose();
         cashRegisterFactoryRegistration.Dispose();
@@ -105,6 +110,13 @@ public sealed class Plugin : MarshalByRefObject, IFrontPlugin
             true,
             PrintIconGeometry);
         PluginContext.Log.Info($"Webkassa fiscal receipt auto-print {(enabled ? "enabled" : "disabled")} for order {orderId}.");
+    }
+
+    private static void OnReturnPrintToggle(ValueTuple<IViewManager, Guid, Resto.Front.Api.Data.Device.ICashRegisterInfo> args)
+    {
+        var orderId = args.Item2.ToString("D");
+        var enabled = WebkassaPrintRequests.Toggle(orderId);
+        PluginContext.Log.Info($"Webkassa fiscal receipt auto-print {(enabled ? "enabled" : "disabled")} for return order {orderId}.");
     }
 
     private static void OnClosedOrderPrintButton(ValueTuple<IViewManager, IOrder, Resto.Front.Api.Data.Device.ICashRegisterInfo> args)

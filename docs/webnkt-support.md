@@ -82,5 +82,5 @@ additional fields or aliases.
 
 - `src/iiko-cheque-mapper.js`
 - `config/iikofront-adapter.config.example.json`
-- `src/Webkassa.IikoFrontAdapter.Spike/AdapterConfiguration.cs`
+- `src/Resto.Front.Api.Webkassa.V9/AdapterConfiguration.cs`
 - `tests/contract/webkassa-contract.test.js`

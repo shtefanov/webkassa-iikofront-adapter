@@ -114,8 +114,8 @@ Important `ChequeTask` fields available for mapping:
 
 Compile-level skeleton:
 
-- local: `src/Webkassa.IikoFrontAdapter.Spike`
-- Windows: `C:\OpenClaw\work\webkassa-iikofront-adapter\src\Webkassa.IikoFrontAdapter.Spike`
+- local: `src/Resto.Front.Api.Webkassa.V9`
+- Windows: `C:\OpenClaw\work\webkassa-iikofront-adapter\src\Resto.Front.Api.Webkassa.V9`
 - build: `dotnet build --no-restore`
 - result: success, `0` warnings, `0` errors
 

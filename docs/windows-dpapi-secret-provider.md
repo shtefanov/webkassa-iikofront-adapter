@@ -10,8 +10,8 @@ files.
 
 ## Current Code
 
-- `src/Webkassa.IikoFrontAdapter.Spike/SecretProvider.cs`
-- `src/Webkassa.IikoFrontAdapter.Spike/DpapiFileSecretProvider.cs`
+- `src/Resto.Front.Api.Webkassa.V9/SecretProvider.cs`
+- `src/Resto.Front.Api.Webkassa.V9/DpapiFileSecretProvider.cs`
 
 ## Storage Location
 
