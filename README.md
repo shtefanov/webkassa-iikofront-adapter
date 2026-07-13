@@ -1,116 +1,137 @@
-# Webkassa Integration
+# Webkassa iikoFront Adapter
 
-Created: 02-07-2026
+[![CI](https://github.com/shtefanov/webkassa-iikofront-adapter/actions/workflows/ci.yml/badge.svg)](https://github.com/shtefanov/webkassa-iikofront-adapter/actions/workflows/ci.yml)
 
-## Purpose
-
-Separate development project for a Webkassa fiscal integration module connected to iikoFront work.
-
-Primary goal:
-
-- fiscalize iiko sales through Webkassa API;
-- persist Webkassa fiscal sale data;
-- fiscalize returns with protocol `2.0.3` `returnBasisDetails`;
-- keep Webkassa code isolated from IIKO bank-terminal plugins.
-
-## Project Boundary
-
-This project owns:
-
-- Webkassa API client research and implementation;
-- fiscal data persistence model;
-- return-basis mapping;
-- Webkassa sandbox/test harness;
-- future iikoFront fiscal adapter or sidecar service code.
-
-The IIKO project owns:
-
-- iikoFront version and API context;
-- BCC/Kaspi payment plugin context;
-- cashier workflow and existing log analysis;
-- cross-project integration notes.
-
-Do not copy secrets, raw logs, or unrelated IIKO plugin code into this project.
-
-## Secrets and Test Environments
-
-- Keep Webkassa API keys, login/password pairs, tokens, and customer cashbox
-  identifiers outside the repository.
-- Store deployment secrets in protected storage, such as Bitwarden during
-  development or Windows DPAPI on installed terminals.
-- Use `config/*.example.json` files only for non-secret examples and placeholder
-  values.
-
-Raw API keys, passwords, tokens, and session values must not be stored in this repository, docs, Archive, command logs, or chat replies.
-
-## Important References
-
-- Webkassa Postman docs: `https://documenter.getpostman.com/view/48749526/2sBXc8o3JF`
-- iikoFront API docs: `https://iiko.github.io/front.api.doc/`
-- iikoFront API V9 reference: `https://iiko.github.io/front.api.sdk/v9/`
-- Release channels: `docs/release-channels.md`
-- Release checklist: `docs/release-checklist.md`
+Webkassa fiscal adapter for iikoFront. The project contains the iikoFront
+external fiscal register plugin, local sidecar service, Webkassa API client,
+offline queue, receipt/report printing path, setup utility, test fixtures, and
+operator diagnostics.
 
 ## Status
 
-Early implementation groundwork:
+The repository is private and under active beta development.
 
-- Webkassa API notes and config/onboarding docs are prepared.
-- Test sale and sale return on the Webkassa test cashbox have been verified.
-- Node-only contract tests and sample payloads are present.
-- Repeatable smoke scripts are available without installing packages.
-- Core Node modules are present for Webkassa API calls, response normalization,
-  fiscal result storage, return basis construction, and recovery contracts.
-- iikoFront adapter spike can be packaged on the Windows worker for demo-terminal
-  load validation and follows the iikoFront SDK 9 external fiscal register
-  shape at compile level.
-- Sidecar and mock Webkassa server skeletons are present for local development
-  without iikoFront or live Webkassa calls.
+Current package version: `0.11.42-beta`.
 
-## Smoke Commands
+Production rollout requires the stable release checklist in
+[`docs/release-checklist.md`](docs/release-checklist.md).
 
-Read-only smoke:
+## Features
+
+- iikoFront V9 external fiscal register adapter.
+- Webkassa API v4 authorization and fiscal check integration.
+- Fiscal sale and sale-return flow with saved return basis data.
+- X-report and Z-report support through the sidecar.
+- Local print path for fiscal receipts and reports.
+- Offline queue and recovery-oriented fiscal result store.
+- Windows DPAPI secret storage for installed terminals.
+- Setup utility for configuration, secret entry, and connection checks.
+- Operator-facing diagnostic messages for common Webkassa errors.
+- National Catalog helper flow for iiko product data.
+
+## Repository Layout
+
+| Path | Purpose |
+| --- | --- |
+| `src/Webkassa.IikoFrontAdapter.Spike/` | iikoFront plugin source. |
+| `tools/Webkassa.IikoFrontAdapter.Setup/` | terminal setup/configuration utility. |
+| `tools/Webkassa.Sidecar.WindowsService/` | Windows service wrapper for the sidecar. |
+| `src/*.js` | Webkassa client, sidecar, storage, queue, diagnostics, and helpers. |
+| `scripts/` | packaging, smoke, Windows deployment, and demo-terminal helper scripts. |
+| `tests/` | Node contract tests and fixtures. |
+| `config/*.example.json` | non-secret configuration examples. |
+| `docs/` | product, architecture, operations, release, and support documentation. |
+
+Local runtime data, build artifacts, private archive notes, smoke outputs, and
+real configuration files are intentionally ignored by git.
+
+## Quick Start
+
+Run contract tests:
 
 ```bash
-npm run smoke:readonly -- --secret-source bitwarden
+npm test
 ```
 
-Fiscal sale/return smoke on the test cashbox:
+Run the local mock Webkassa server:
 
 ```bash
-npm run smoke:fiscal -- --execute-fiscal --secret-source bitwarden
+npm run mock:webkassa
 ```
 
-The fiscal command requires `--execute-fiscal` and writes only redacted JSON
-reports under `docs/smoke-tests/`. It does not run X-report, Z-report, or money
-operations.
+Start the sidecar in a development shell:
 
-## Core Files
+```bash
+npm run sidecar -- --secret-source env
+```
 
-- `src/webkassa-client.js`
-- `src/webkassa-normalizers.js`
-- `src/fiscal-result-store.js`
-- `src/sidecar-server.js`
-- `src/mock-webkassa-server.js`
-- `src/Webkassa.IikoFrontAdapter.Spike/`
-- `tools/iikofront-api-probe/`
-- `scripts/package-iikofront-adapter.ps1`
-- `scripts/mock-webkassa-server.js`
-- `tools/Webkassa.IikoFrontAdapter.Setup/`
-- `docs/fiscal-storage-schema.md`
-- `docs/return-recovery-flow.md`
-- `docs/iikofront-adapter-spike.md`
-- `docs/iikofront-adapter-package.md`
-- `docs/iikofront-adapter-configuration.md`
-- `docs/iikofront-cheque-task-mapper.md`
-- `docs/iikofront-demo-validation.md`
-- `docs/demo-iikofront-first-run-runbook.md`
-- `docs/iikofront-sdk9-compliance.md`
-- `docs/release-versioning.md`
-- `docs/sidecar-architecture.md`
-- `docs/mock-webkassa-server.md`
-- `docs/windows-deployment-layout.md`
-- `docs/fiscal-edge-cases.md`
-- `docs/setup-utility.md`
-- `docs/windows-iikofront-dev-setup.md`
-- `docs/windows-codex-handoff-prompt.md`
+Build the iikoFront package on the Windows build host:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\package-iikofront-adapter.ps1
+```
+
+The Windows package build expects the compatible iikoFront API DLLs to be
+available on the build machine.
+
+## Configuration and Secrets
+
+Do not commit raw secrets.
+
+Keep these outside the repository:
+
+- Webkassa API keys;
+- Webkassa login/password pairs;
+- Webkassa tokens;
+- customer cashbox identifiers unless they are deliberate placeholders;
+- DPAPI secret files;
+- production configuration files;
+- customer logs and support bundles.
+
+Use:
+
+- `config/*.example.json` for non-secret examples;
+- Windows DPAPI on installed terminals;
+- Bitwarden or another protected vault during development.
+
+See [`docs/secrets.md`](docs/secrets.md) and
+[`docs/iikofront-adapter-configuration.md`](docs/iikofront-adapter-configuration.md).
+
+## Documentation
+
+Start with [`docs/index.md`](docs/index.md).
+
+Important docs:
+
+- [`docs/sidecar-architecture.md`](docs/sidecar-architecture.md)
+- [`docs/iikofront-adapter-package.md`](docs/iikofront-adapter-package.md)
+- [`docs/iikofront-terminal-install.md`](docs/iikofront-terminal-install.md)
+- [`docs/release-channels.md`](docs/release-channels.md)
+- [`docs/release-checklist.md`](docs/release-checklist.md)
+- [`SECURITY.md`](SECURITY.md)
+- [`CONTRIBUTING.md`](CONTRIBUTING.md)
+
+## Release Channels
+
+The project uses two channels:
+
+- `beta`: development, demo terminals, and selected pilot terminals.
+- `stable`: production terminals after the full regression checklist passes.
+
+The `main` branch represents stable-ready source. The `beta` branch is used for
+active beta integration.
+
+See [`docs/release-channels.md`](docs/release-channels.md).
+
+## Support
+
+For private development, use GitHub Issues in this repository. For customer
+support after public release, use the support process published on
+`iiko-plugin.kz`.
+
+See [`SUPPORT.md`](SUPPORT.md).
+
+## License
+
+No open-source license has been selected yet. Until a license is added, all
+rights are reserved by the repository owner.

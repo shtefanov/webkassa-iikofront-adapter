@@ -1,0 +1,38 @@
+name: Release task
+description: Track beta or stable release preparation.
+title: "[Release]: "
+labels: ["release"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: 0.12.0-beta.1
+    validations:
+      required: true
+  - type: dropdown
+    id: channel
+    attributes:
+      label: Channel
+      options:
+        - beta
+        - stable
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: npm test passed
+        - label: Windows package build passed
+        - label: SHA256 generated
+        - label: release notes prepared
+        - label: update manifest prepared
+        - label: rollback package available
+        - label: stable regression checklist passed, if stable
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Include artifact paths, CI links, and validation summary.

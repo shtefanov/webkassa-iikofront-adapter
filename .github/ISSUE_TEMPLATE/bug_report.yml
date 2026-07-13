@@ -1,0 +1,76 @@
+name: Bug report
+description: Report a reproducible adapter, sidecar, setup, or fiscal workflow bug.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include raw secrets, customer credentials, tokens, DPAPI files, or unsanitized logs.
+  - type: input
+    id: version
+    attributes:
+      label: Adapter version
+      placeholder: 0.11.42-beta
+    validations:
+      required: true
+  - type: input
+    id: iikofront
+    attributes:
+      label: iikoFront version
+      placeholder: 9.5.x
+  - type: dropdown
+    id: channel
+    attributes:
+      label: Release channel
+      options:
+        - beta
+        - stable
+        - local/dev
+        - unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: operation
+    attributes:
+      label: Operation
+      options:
+        - authorization
+        - open shift
+        - sale
+        - return
+        - receipt print
+        - X-report
+        - Z-report / close shift
+        - offline queue
+        - setup/configuration
+        - National Catalog
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. ...\n2. ...\n3. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Paste only redacted logs. Remove passwords, API keys, tokens, customer data, and cashbox credentials.
+      render: text

@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest a product, operator, release, or integration improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the expected behavior.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - iikoFront plugin
+        - sidecar
+        - setup/installer
+        - updater/release
+        - receipt/report printing
+        - diagnostics/support
+        - National Catalog
+        - documentation
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Add constraints, examples, or operator impact.
