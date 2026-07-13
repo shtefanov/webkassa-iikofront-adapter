@@ -1,0 +1,29 @@
+{
+  "requiredTopLevel": [
+    "Token",
+    "CashboxUniqueNumber",
+    "OperationType",
+    "Positions",
+    "Payments",
+    "RoundType",
+    "ExternalCheckNumber"
+  ],
+  "expected": {
+    "CashboxUniqueNumber": "SWK00035753",
+    "OperationType": 2,
+    "RoundType": 2,
+    "Total": 100
+  },
+  "positionRequired": [
+    "Count",
+    "Price",
+    "Tax",
+    "TaxType",
+    "PositionName",
+    "UnitCode"
+  ],
+  "paymentRequired": [
+    "Sum",
+    "PaymentType"
+  ]
+}

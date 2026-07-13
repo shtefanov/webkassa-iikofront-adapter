@@ -1,0 +1,42 @@
+{
+  "orderId": "iiko-order-001",
+  "orderNumber": "1001",
+  "paymentId": "iiko-payment-001",
+  "refundId": "iiko-refund-001",
+  "operationTime": "2026-07-02T17:36:00+05:00",
+  "cashier": {
+    "id": "cashier-001",
+    "name": "Test Cashier"
+  },
+  "positions": [
+    {
+      "productId": "product-001",
+      "code": "BURGER-001",
+      "name": "Тестовый бургер",
+      "count": 1,
+      "price": 100,
+      "discount": 0,
+      "markup": 0,
+      "taxType": 0,
+      "tax": 0,
+      "sectionCode": "1",
+      "unitCode": 796,
+      "nkt": {
+        "gtin": "0123456789012",
+        "name": "Тестовый бургер НКТ"
+      }
+    }
+  ],
+  "payments": [
+    {
+      "paymentId": "iiko-refund-payment-001",
+      "paymentType": 0,
+      "sum": 100
+    }
+  ],
+  "customer": {
+    "email": null,
+    "phone": null,
+    "xin": null
+  }
+}

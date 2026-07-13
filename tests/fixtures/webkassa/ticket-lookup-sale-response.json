@@ -1,0 +1,17 @@
+{
+  "Data": {
+    "OperationType": 2,
+    "OperationTypeText": "Продажа",
+    "ExternalCheckNumber": "webkassa-smoke-sale-fixture",
+    "CheckNumber": "1779616679908",
+    "DateTime": "02.07.2026 14:14:49",
+    "DateTimeUTC": "02.07.2026 14:14:49 +05:00",
+    "ShiftNumber": 1,
+    "CashboxUniqueNumber": "SWK00035753",
+    "CashboxRegistrationNumber": "943317789864",
+    "CheckOrderNumber": 5,
+    "Total": 100,
+    "IsOffline": false
+  },
+  "Errors": []
+}

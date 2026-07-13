@@ -1,0 +1,35 @@
+{
+  "Token": "__TOKEN_REQUIRED__",
+  "CashboxUniqueNumber": "SWK00035753",
+  "OperationType": 2,
+  "Positions": [
+    {
+      "Count": 1,
+      "Price": 100,
+      "TaxPercent": null,
+      "Tax": 0,
+      "TaxType": 0,
+      "PositionName": "Тестовая позиция",
+      "PositionCode": "TEST-001",
+      "Discount": 0,
+      "Markup": 0,
+      "SectionCode": "1",
+      "UnitCode": 796,
+      "WarehouseType": 0,
+      "markList": []
+    }
+  ],
+  "Payments": [
+    {
+      "Sum": 100,
+      "PaymentType": 0
+    }
+  ],
+  "Change": 0,
+  "RoundType": 2,
+  "ExternalCheckNumber": "webkassa-smoke-sale-20260702083214",
+  "ExternalOrderNumber": "webkassa-smoke-order-20260702083214",
+  "CustomerEmail": null,
+  "CustomerPhone": null,
+  "CustomerXin": null
+}

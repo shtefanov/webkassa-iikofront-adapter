@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<!--
+  Template only. Do not deploy as-is.
+
+  Replace PENDING-IIKO-LICENSE-MODULE-ID with the official unique module id
+  assigned by iiko, then add the same id to Plugin.cs:
+
+  [PluginLicenseModuleId(<assigned-id>)]
+
+  iiko documentation requires Manifest.xml LicenseModuleId and the plugin class
+  attribute to match. Fake/sample ids must not be used.
+-->
+<Manifest xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <FileName>Webkassa.IikoFrontAdapter.Spike.dll</FileName>
+  <TypeName>Webkassa.IikoFrontAdapter.Spike.Plugin</TypeName>
+  <ApiVersion>V9</ApiVersion>
+  <IsSingleInstance>true</IsSingleInstance>
+  <LicenseModuleId>PENDING-IIKO-LICENSE-MODULE-ID</LicenseModuleId>
+</Manifest>

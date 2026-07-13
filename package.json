@@ -1,0 +1,15 @@
+{
+  "name": "webkassa-integration",
+  "version": "0.11.42",
+  "private": true,
+  "description": "Webkassa fiscal integration planning, fixtures, and contract tests.",
+  "scripts": {
+    "test": "node tests/contract/webkassa-contract.test.js",
+    "payload:sale": "node scripts/build-sale-payload.js",
+    "nkt:registry": "node scripts/build-nkt-registry.js",
+    "sidecar": "node scripts/sidecar.js",
+    "mock:webkassa": "node scripts/mock-webkassa-server.js",
+    "smoke:readonly": "node scripts/webkassa-smoke.js --mode readonly",
+    "smoke:fiscal": "node scripts/webkassa-smoke.js --mode fiscal"
+  }
+}

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>Webkassa.IikoFrontAdapter.Spike</AssemblyName>
+    <RootNamespace>Webkassa.IikoFrontAdapter.Spike</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <Platforms>AnyCPU</Platforms>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <AssemblyVersion>0.11.42.0</AssemblyVersion>
+    <FileVersion>0.11.42.0</FileVersion>
+    <InformationalVersion>0.11.42-beta</InformationalVersion>
+    <IikoFrontNetPath Condition="'$(IikoFrontNetPath)' == ''">C:\Program Files\iiko\iikoRMS\Front.Net</IikoFrontNetPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Security" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="Resto.Front.Api.V9">
+      <HintPath>$(IikoFrontNetPath)\Resto.Front.Api.V9.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" PrivateAssets="All" />
+  </ItemGroup>
+</Project>

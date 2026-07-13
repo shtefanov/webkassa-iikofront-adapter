@@ -1,0 +1,116 @@
+{
+  "environment": "dev",
+  "baseUrl": "https://devkkm.webkassa.kz",
+  "companyProfile": "demo-company",
+  "cashboxUniqueNumber": "SWK00035753",
+  "secretRefs": {
+    "apiKey": "Webkassa test API key - SWK00035753",
+    "login": "Webkassa test login - SWK00035753",
+    "password": "Webkassa test login - SWK00035753"
+  },
+  "auth": {
+    "mode": "apiKeyAndLoginPassword"
+  },
+  "defaults": {
+    "unitCode": 796,
+    "roundType": 2,
+    "paymentType": 0
+  },
+  "fiscalization": {
+    "protocolVersion": "2.0.3",
+    "writeFiscalData": true,
+    "dryRunDoCheque": true
+  },
+  "printing": {
+    "mode": "iikoReceiptPrinterWithWindowsFallback",
+    "preferredWindowsPrinterName": "",
+    "fallbackWindowsPrinterName": "Microsoft Print to PDF",
+    "pdfOutputDirectory": "C:\\OpenClaw\\logs\\webkassa-receipts",
+    "paperKind": 0,
+    "acceptLanguage": "ru-RU"
+  },
+  "offline": {
+    "enabled": true,
+    "maxOfflineHours": 72,
+    "syncOnReconnect": true
+  },
+  "webnkt": {
+    "enabled": true,
+    "requireIdentifier": false,
+    "fieldMap": {
+      "nktCode": "NTIN",
+      "gtin": "GTIN",
+      "productId": "ProductId",
+      "name": "NomenclatureName"
+    }
+  },
+  "nationalCatalog": {
+    "enabled": false,
+    "baseUrl": "https://nationalcatalog.kz/gwp",
+    "dryRun": true,
+    "batchSize": 10,
+    "autoBatchLimit": 3,
+    "autoDelaySeconds": 30,
+    "secretRefs": {
+      "apiKey": "National Catalog API key",
+      "login": "National Catalog login",
+      "password": "National Catalog password"
+    },
+    "autoFill": {
+      "enabled": true,
+      "treatDishAsOwnProduction": true,
+      "treatGoodsWithoutBarcodeAsOwnProduction": true,
+      "countryCode": "KZ",
+      "countryName": "Казахстан",
+      "producerName": "",
+      "producerTin": "",
+      "brand": "",
+      "defaultOktru": "",
+      "defaultMeasureCode": "",
+      "defaultMeasureName": "порция",
+      "defaultQuantity": 1,
+      "autoPublication": false,
+      "rules": [
+        {
+          "name": "Раздача / готовые блюда",
+          "productType": "Dish",
+          "categoryContains": "",
+          "cookingPlaceContains": "Раздача",
+          "nameContains": "",
+          "oktru": "",
+          "measureCode": "",
+          "measureName": "порция",
+          "brand": "",
+          "ownProduction": true,
+          "exclude": false
+        }
+      ]
+    }
+  },
+  "sidecar": {
+    "enabled": true,
+    "baseUrl": "http://127.0.0.1:17777",
+    "timeoutMs": 30000,
+    "healthPath": "/health"
+  },
+  "requestPolicy": {
+    "timeoutMs": 30000,
+    "maxRetries": 1,
+    "retryOnlyWithExternalCheckNumber": true,
+    "serializePerCashbox": true
+  },
+  "storage": {
+    "provider": "sqlite",
+    "path": "%ProgramData%\\WebkassaIikoFrontAdapter\\fiscal-results.sqlite"
+  },
+  "logging": {
+    "level": "info",
+    "redactSecrets": true,
+    "retentionDays": 30
+  },
+  "licenseMonitoring": {
+    "enabled": true,
+    "warningDays": 7,
+    "checkIntervalMinutes": 60
+  }
+}

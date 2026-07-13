@@ -1,0 +1,41 @@
+# Local runtime state
+.runtime/
+data/
+*.log
+logs/
+*.tmp
+
+# Build artifacts
+dist/
+bin/
+obj/
+*.zip
+*.msi
+*.nupkg
+
+# Dependencies and caches
+node_modules/
+.npm/
+.cache/
+
+# Local project planning and private operational history
+PLAN.md
+archive/
+
+# Generated validation outputs and environment-specific smoke reports
+docs/smoke-tests/
+docs/exports/
+screenshots/
+
+# Local configuration with secrets or machine-specific values
+config/*.json
+!config/*.example.json
+*.local.json
+*.user
+*.suo
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

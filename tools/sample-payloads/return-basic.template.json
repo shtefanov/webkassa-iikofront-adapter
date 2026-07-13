@@ -1,0 +1,42 @@
+{
+  "Token": "__TOKEN__",
+  "CashboxUniqueNumber": "SWK00035753",
+  "OperationType": 3,
+  "Positions": [
+    {
+      "Count": 1,
+      "Price": 100,
+      "TaxPercent": null,
+      "Tax": 0,
+      "TaxType": 0,
+      "PositionName": "Тестовая позиция",
+      "PositionCode": "TEST-001",
+      "Discount": 0,
+      "Markup": 0,
+      "SectionCode": "1",
+      "UnitCode": 796,
+      "WarehouseType": 0,
+      "markList": []
+    }
+  ],
+  "Payments": [
+    {
+      "Sum": 100,
+      "PaymentType": 0
+    }
+  ],
+  "Change": 0,
+  "RoundType": 2,
+  "ExternalCheckNumber": "__RETURN_EXTERNAL_CHECK_NUMBER__",
+  "ExternalOrderNumber": "__EXTERNAL_ORDER_NUMBER__",
+  "CustomerEmail": null,
+  "CustomerPhone": null,
+  "CustomerXin": null,
+  "returnBasisDetails": {
+    "dateTime": "__ORIGINAL_DATETIME__",
+    "total": 100,
+    "checkNumber": "__ORIGINAL_CHECK_NUMBER__",
+    "registrationNumber": "__ORIGINAL_REGISTRATION_NUMBER__",
+    "isOffline": false
+  }
+}

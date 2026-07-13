@@ -1,0 +1,35 @@
+{
+  "environment": "dev",
+  "baseUrl": "https://devkkm.webkassa.kz",
+  "cashboxes": [
+    {
+      "name": "test-cashbox",
+      "cashboxUniqueNumber": "SWK00035753",
+      "authMode": "apiKeyAndLoginPassword",
+      "apiKeySecretRef": "Webkassa test API key - SWK00035753",
+      "loginSecretRef": "Webkassa test login - SWK00035753",
+      "defaultUnitCode": 796,
+      "defaultRoundType": 2,
+      "defaultPaymentType": 0
+    }
+  ],
+  "requestPolicy": {
+    "serializePerCashbox": true,
+    "timeoutMs": 30000,
+    "maxRetries": 1,
+    "retryOnlyWithExternalCheckNumber": true
+  },
+  "storage": {
+    "provider": "pending",
+    "connectionSecretRef": null
+  },
+  "logging": {
+    "level": "info",
+    "redactSecrets": true,
+    "retentionDays": 30
+  },
+  "licenseMonitoring": {
+    "enabled": true,
+    "warningDays": 7
+  }
+}
