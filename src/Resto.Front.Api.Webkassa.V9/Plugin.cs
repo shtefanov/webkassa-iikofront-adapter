@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Threading;
 using System.Security.Principal;
 using Resto.Front.Api.Data.Orders;
@@ -17,6 +20,8 @@ public sealed class Plugin : MarshalByRefObject, IFrontPlugin
     private const string PrintTicketCaption = "Печать Webkassa чека";
     private const string PaymentPrintCaption = "Печатать фискальный чек";
     private const string SettingsCaption = "Настройки Webkassa";
+    private const string SetupExecutableName = "Webkassa.IikoFrontAdapter.Setup.exe";
+    private const string SetupPathFileName = "Webkassa.IikoFrontAdapter.Setup.path";
     private const string PrintIconGeometry = "M3,6 L21,6 L21,18 L3,18 Z M6,3 L18,3 L18,8 L6,8 Z M7,13 L17,13 M7,16 L17,16";
 
     private readonly IDisposable cashRegisterFactoryRegistration;
@@ -76,9 +81,7 @@ public sealed class Plugin : MarshalByRefObject, IFrontPlugin
         {
             if (!IsElevatedAdministrator())
             {
-                viewManager.ShowErrorPopup(
-                    "Настройки Webkassa доступны только в административном сеансе Windows. Используйте Webkassa.IikoFrontAdapter.Setup.exe с повышенными правами.",
-                    "Закрыть");
+                LaunchElevatedSettings();
                 return;
             }
             WebkassaSettingsDialog.Show();
@@ -88,6 +91,49 @@ public sealed class Plugin : MarshalByRefObject, IFrontPlugin
             PluginContext.Log.Error($"Webkassa settings dialog failed. Error={error.GetType().Name}: {error.Message}");
             viewManager.ShowErrorPopup($"Не удалось открыть настройки Webkassa: {error.Message}", "Закрыть");
         }
+    }
+
+    private static void LaunchElevatedSettings()
+    {
+        var setupPath = ResolveSetupExecutablePath();
+        if (string.IsNullOrWhiteSpace(setupPath) || !File.Exists(setupPath))
+            throw new FileNotFoundException(
+                "Графический конфигуратор Webkassa не установлен. Переустановите адаптер из актуального пакета.",
+                setupPath);
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = setupPath,
+                Arguments = "--gui",
+                WorkingDirectory = Path.GetDirectoryName(setupPath) ?? string.Empty,
+                UseShellExecute = true,
+                Verb = "runas",
+            });
+        }
+        catch (Win32Exception error) when (error.NativeErrorCode == 1223)
+        {
+            PluginContext.Log.Info("Webkassa elevated settings launch was cancelled by the operator.");
+        }
+    }
+
+    private static string ResolveSetupExecutablePath()
+    {
+        var assemblyDirectory = Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? string.Empty;
+        var pathFile = Path.Combine(assemblyDirectory, SetupPathFileName);
+        if (File.Exists(pathFile))
+        {
+            var configuredPath = File.ReadAllText(pathFile).Trim();
+            if (string.Equals(Path.GetFileName(configuredPath), SetupExecutableName, StringComparison.OrdinalIgnoreCase))
+                return configuredPath;
+        }
+
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            "WebkassaIikoFrontAdapter",
+            "setup",
+            SetupExecutableName);
     }
 
     private static bool IsElevatedAdministrator()

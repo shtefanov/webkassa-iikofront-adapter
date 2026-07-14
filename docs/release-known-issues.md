@@ -4,7 +4,7 @@ Every GitHub Release and `iiko-plugin.kz` release page must include a `Known
 issues` section for the published version. If there are no known issues, write
 `No known issues confirmed for this release` instead of omitting the section.
 
-## 0.11.49-beta
+## 0.11.50-beta
 
 | Issue | Manifestation | Affected operation | Workaround | Severity |
 | --- | --- | --- | --- | --- |

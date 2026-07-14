@@ -7,7 +7,7 @@ Date: 02-07-2026
 Current adapter version:
 
 ```text
-0.11.49-beta
+0.11.50-beta
 ```
 
 Canonical version file:
@@ -46,7 +46,7 @@ Resto.Front.Api.Webkassa.V9-<version>-<yyyyMMdd-HHmmss>.zip
 Example:
 
 ```text
-Resto.Front.Api.Webkassa.V9-0.11.49-beta-<timestamp>.zip
+Resto.Front.Api.Webkassa.V9-0.11.50-beta-<timestamp>.zip
 ```
 
 ## Release Checklist

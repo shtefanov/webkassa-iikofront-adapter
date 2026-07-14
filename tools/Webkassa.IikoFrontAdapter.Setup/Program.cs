@@ -29,6 +29,9 @@ internal static class Program
             if (args.Contains("--protect-secrets-from-env", StringComparer.OrdinalIgnoreCase))
                 return ProtectSecretsFromEnv(args);
 
+            if (args.Contains("--gui", StringComparer.OrdinalIgnoreCase))
+                return GuiSetup();
+
             return InteractiveSetup();
         }
         catch (Exception error)
@@ -36,6 +39,12 @@ internal static class Program
             Console.Error.WriteLine($"ERROR: {error.Message}");
             return 1;
         }
+    }
+
+    private static int GuiSetup()
+    {
+        WebkassaSettingsDialog.Show();
+        return 0;
     }
 
     private static int InteractiveSetup()

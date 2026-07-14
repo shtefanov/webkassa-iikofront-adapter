@@ -15,7 +15,8 @@ Project:
 tools/Webkassa.IikoFrontAdapter.Setup
 ```
 
-The tool is a Windows console setup utility.
+The tool provides both a Windows console setup flow and the elevated graphical
+settings editor launched from iikoFront.
 
 ## Interactive Mode
 
@@ -24,6 +25,18 @@ Run:
 ```powershell
 Webkassa.IikoFrontAdapter.Setup.exe
 ```
+
+The installed iikoFront button launches the graphical setup mode through
+Windows UAC:
+
+```powershell
+Webkassa.IikoFrontAdapter.Setup.exe --gui
+```
+
+The utility is deployed to the protected application directory and its exact
+path is recorded next to the plugin. The normal iikoFront process keeps
+read-only access to configuration and does not receive direct access to
+protected secrets.
 
 It asks for:
 

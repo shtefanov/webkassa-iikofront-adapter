@@ -5,7 +5,7 @@ const { buildSupportBundle } = require('./support-bundle');
 function createSidecarServer(options = {}) {
   const fiscalService = options.fiscalService || null;
   const supportBundleOptions = options.supportBundleOptions || null;
-  const version = options.version || '0.11.49-beta';
+  const version = options.version || '0.11.50-beta';
   const status = options.status || {};
   const authToken = options.authToken || null;
 

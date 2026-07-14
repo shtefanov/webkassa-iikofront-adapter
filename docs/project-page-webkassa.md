@@ -1,7 +1,7 @@
 # Webkassa Project Page Facts
 
 Date: 14-07-2026
-Version: `0.11.49-beta`
+Version: `0.11.50-beta`
 
 Use this page as the factual source for `iiko-plugin.kz` project/release copy.
 
@@ -43,7 +43,7 @@ Compatibility mode:
   production-supported until Webkassa confirms the exact endpoint and request
   format.
 
-## Validation Status for 0.11.49-beta
+## Validation Status for 0.11.50-beta
 
 | Check | Status | Notes |
 | --- | --- | --- |
@@ -51,11 +51,11 @@ Compatibility mode:
 | Windows contract tests | Passed | `npm test` passed on Windows worker. |
 | Windows package build | Passed | `0` warnings, `0` errors. |
 | GitHub Actions | Passed | CI run `29319150840` passed for audit commit `f4ac0f4`. |
-| Install from scratch | Not separately confirmed for `0.11.49-beta` | The final package was installed as SYSTEM over the existing beta terminal. |
+| Install from scratch | Not separately confirmed for `0.11.50-beta` | The final package was installed as SYSTEM over the existing beta terminal. |
 | Update old identity | Passed | Legacy `Webkassa.IikoFrontAdapter.Spike` folder moved to backup. |
 | Updater dry-run | Passed | Local beta manifest. |
 | Updater install | Passed | Installed `Resto.Front.Api.Webkassa.V9`. |
-| Sidecar restart/status | Passed | SYSTEM install returned a running service and healthy `0.11.49-beta`. |
+| Sidecar restart/status | Passed | SYSTEM install returned a running service with plugin version `0.11.50-beta`. |
 | Offline queue status | Passed | Observed `pending=0`, `synced=1`; local deferral remains disabled in terminal config. |
 | Sale | Passed from iikoFront UI | Dev check `1780650430087`, shift `9`; iiko `IncomeSumVerifier` passed. |
 | Return | Passed from iikoFront UI | Full cancellation check `1780650525237`, shift `9`; iiko `IncomeSumVerifier` passed. |
@@ -63,11 +63,12 @@ Compatibility mode:
 | Money pay-in/pay-out | Passed with terminal limitation | UI pay-in `10` passed. Sidecar pay-out and durable retry passed; UI pay-out is unavailable because this test terminal has no staff-managed withdrawal type configured. |
 | X-report | Passed | Report `3`, shift `8`. |
 | Z-report / close shift | Passed | Report `4`, shift `8`. |
-| iikoFront restart/plugin load | Passed | `Resto.Front.Api.Host.exe` loaded installed DLL `0.11.49.0` with module `21016318`. |
+| iikoFront restart/plugin load | Passed | `Resto.Front.Api.Host.exe` loaded installed DLL `0.11.50.0` with module `21016318`. |
 | iikoFront UI-triggered `DoCheque` | Passed | Active private RDP session completed sale, full cancellation, deletion reason flow, and receipt print. |
+| Protected settings UI | Passed | Installed graphical setup utility opened with the existing redacted configuration; secrets remained blank and protected directories retained hardened ACLs. |
 | Offline outage and sync | Not rerun | Stored queue is clean; the local deferred feature remains disabled by default. |
 
-## Known Issues for 0.11.49-beta
+## Known Issues for 0.11.50-beta
 
 | Issue | Manifestation | Operation | Workaround | Severity |
 | --- | --- | --- | --- | --- |

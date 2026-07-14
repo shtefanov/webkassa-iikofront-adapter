@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "project": "webkassa",
   "channel": "beta",
-  "version": "0.11.49-beta",
-  "packageUrl": "https://iiko-plugin.kz/downloads/webkassa/beta/0.11.49-beta/Resto.Front.Api.Webkassa.V9-0.11.49-beta-20260714-132018.zip",
-  "packageFileName": "Resto.Front.Api.Webkassa.V9-0.11.49-beta-20260714-132018.zip",
-  "packageSize": 367574,
-  "sha256": "f6084d7e67b57fedf1197b9ac7a87c5621bf06b7260434e51b0186bfd372fc43",
+  "version": "0.11.50-beta",
+  "packageUrl": "https://iiko-plugin.kz/downloads/webkassa/beta/0.11.50-beta/Resto.Front.Api.Webkassa.V9-0.11.50-beta-20260714-181603.zip",
+  "packageFileName": "Resto.Front.Api.Webkassa.V9-0.11.50-beta-20260714-181603.zip",
+  "packageSize": 368941,
+  "sha256": "d96eae286242b2799ef95668b77851577f57775a40c7389868d52777d4de29ea",
   "minIikoFrontVersion": "9.5",
   "minIikoFrontApiVersion": "V9",
   "supportedIikoFrontApiVersions": ["V9"],
-  "releaseNotesUrl": "https://iiko-plugin.kz/releases/webkassa/0.11.49-beta",
-  "publishedAt": "2026-07-14T13:33:11+05:00"
+  "releaseNotesUrl": "https://iiko-plugin.kz/releases/webkassa/0.11.50-beta",
+  "publishedAt": "2026-07-14T18:32:24+05:00"
 }

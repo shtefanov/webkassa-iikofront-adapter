@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.50-beta - 14-07-2026
+
+- Fixed the Webkassa settings regression introduced by the Windows hardening:
+  the iikoFront button now launches the graphical setup utility through UAC
+  instead of showing an unconditional administrative-session error.
+- The installer now deploys the setup utility to the protected application
+  directory and records its exact path next to the plugin.
+- Preserved SYSTEM/Administrators-only ACLs for configuration and protected
+  secrets; the normal iikoFront process does not receive direct write access.
+
 ## 0.11.49-beta - 14-07-2026
 
 - Made iikoFront storno idempotency stable across terminal restarts by deriving

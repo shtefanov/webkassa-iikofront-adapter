@@ -45,6 +45,7 @@
 - [Release checklist](release-checklist.md)
 - [Release known issues](release-known-issues.md)
 - [Webkassa project page facts](project-page-webkassa.md)
+- [Windows/iikoFront regression 0.11.50-beta](windows-regression-0.11.50-beta.md)
 - [Windows/iikoFront regression 0.11.49-beta](windows-regression-0.11.49-beta.md)
 - [GitHub releases](github-releases.md)
 - [GitHub contributing guide](../CONTRIBUTING.md)

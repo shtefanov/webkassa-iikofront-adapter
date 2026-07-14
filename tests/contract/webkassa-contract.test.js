@@ -519,6 +519,10 @@ function validateIikoFrontSdk9Compliance() {
   assert(pluginSource.includes('RegisterCashRegisterFactory'), 'plugin must register ICashRegisterFactory');
   assert(pluginSource.includes('AddButtonToPluginsMenu'), 'plugin must expose Webkassa settings in the iikoFront plugins menu');
   assert(pluginSource.includes('WebkassaSettingsDialog.Show'), 'plugin settings menu must open the Webkassa settings dialog');
+  assert(pluginSource.includes('LaunchElevatedSettings'), 'non-elevated iikoFront must launch the protected settings utility instead of blocking settings');
+  assert(pluginSource.includes('Arguments = "--gui"'), 'elevated settings utility must open its graphical settings mode');
+  assert(pluginSource.includes('Verb = "runas"'), 'settings utility must request elevation through Windows UAC');
+  assert(!pluginSource.includes('Настройки Webkassa доступны только в административном сеансе Windows'), 'settings menu must not show the obsolete unconditional administrative-session error');
   assert(!pluginSource.includes('OnExportProductsButton'), 'active nomenclature export must live in the settings NKT tab, not as a separate plugin menu button');
   assert(pluginSource.includes('AddButtonToPaymentScreen'), 'plugin must add a checked payment-screen button for optional fiscal receipt printing');
   assert(pluginSource.includes('UpdatePaymentScreenButtonState'), 'payment print button must update checked state');

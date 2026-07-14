@@ -197,6 +197,7 @@ $backupRoot = Join-Path $ProgramDataRoot "backups"
 $sidecarServiceInstallRoot = Join-Path $InstallRoot "sidecar-service"
 $sidecarRuntimeInstallRoot = Join-Path $InstallRoot "sidecar-runtime"
 $updaterInstallRoot = Join-Path $InstallRoot "updater"
+$setupInstallRoot = Join-Path $InstallRoot "setup"
 $configDir = Join-Path $ProgramDataRoot "config"
 $configPath = Join-Path $configDir "webkassa-adapter.config.json"
 $logsDir = Join-Path $ProgramDataRoot "logs"
@@ -280,6 +281,13 @@ Get-ChildItem -Path $packageRootPath -File |
 Copy-CleanDirectory -Source $sidecarServiceSource -Destination $sidecarServiceInstallRoot
 Copy-CleanDirectory -Source $sidecarRuntimeSource -Destination $sidecarRuntimeInstallRoot
 Copy-CleanDirectory -Source $updaterSource -Destination $updaterInstallRoot
+Copy-CleanDirectory -Source (Join-Path $packageRootPath "setup") -Destination $setupInstallRoot
+
+$installedSetupExe = Resolve-RequiredPath (Join-Path $setupInstallRoot "Webkassa.IikoFrontAdapter.Setup.exe") "Installed setup utility"
+[IO.File]::WriteAllText(
+    (Join-Path $pluginPath "Webkassa.IikoFrontAdapter.Setup.path"),
+    $installedSetupExe,
+    [Text.UTF8Encoding]::new($false))
 
 $serviceExe = Join-Path $sidecarServiceInstallRoot "Webkassa.Sidecar.WindowsService.exe"
 Resolve-RequiredPath $serviceExe "Sidecar service executable" | Out-Null
@@ -326,7 +334,7 @@ $installedVersion = (Get-Content -Raw -LiteralPath (Join-Path $pluginPath "VERSI
     SidecarServiceStatus = $service.Status.ToString()
     SidecarRuntimeRoot = $sidecarRuntimeInstallRoot
     UpdaterRoot = $updaterInstallRoot
-    SetupUtility = $setupExe
+    SetupUtility = $installedSetupExe
 } | Format-List
 
 Write-Host "Next: open iikoFront, go to Settings Webkassa, enter Webkassa/National Catalog secrets, save, then start or restart $ServiceName."
