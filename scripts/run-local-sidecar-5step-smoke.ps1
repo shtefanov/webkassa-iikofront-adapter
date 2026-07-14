@@ -1,9 +1,12 @@
 param(
     [string]$BaseUrl = "http://127.0.0.1:17777",
-    [string]$OutDir = "docs\smoke-tests"
+    [string]$OutDir = "docs\smoke-tests",
+    [string]$SidecarAuthToken = $env:WEBKASSA_SIDECAR_AUTH_TOKEN
 )
 
 $ErrorActionPreference = "Stop"
+if ([string]::IsNullOrWhiteSpace($SidecarAuthToken)) { throw "WEBKASSA_SIDECAR_AUTH_TOKEN is required." }
+$authHeaders = @{ Authorization = "Bearer $SidecarAuthToken" }
 
 function Post-Json {
     param(
@@ -12,11 +15,11 @@ function Post-Json {
     )
 
     $json = $Body | ConvertTo-Json -Depth 30
-    Invoke-RestMethod -Method Post -Uri ($BaseUrl.TrimEnd("/") + $Path) -ContentType "application/json" -Body $json
+    Invoke-RestMethod -Method Post -Uri ($BaseUrl.TrimEnd("/") + $Path) -Headers $authHeaders -ContentType "application/json" -Body $json
 }
 
 $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss")
-$status = Invoke-RestMethod -Uri ($BaseUrl.TrimEnd("/") + "/status")
+$status = Invoke-RestMethod -Uri ($BaseUrl.TrimEnd("/") + "/status") -Headers $authHeaders
 
 $saleDraft = Get-Content "tests\fixtures\iiko\sale-draft.json" -Raw | ConvertFrom-Json
 $saleDraft.orderId = "iiko-order-sidecar-$stamp"
@@ -52,6 +55,20 @@ $saleReturn = Post-Json "/fiscalize/return" @{
     }
 }
 
+$moneyIn = Post-Json "/money-operation" @{
+    operationType = 0
+    sum = 1.00
+    externalCheckNumber = "iiko-money-in-sidecar-$stamp"
+    runtime = @{}
+}
+
+$moneyOut = Post-Json "/money-operation" @{
+    operationType = 1
+    sum = 1.00
+    externalCheckNumber = "iiko-money-out-sidecar-$stamp"
+    runtime = @{}
+}
+
 $xReport = Post-Json "/reports/x" @{
     runtime = @{}
 }
@@ -62,7 +79,7 @@ $zReport = Post-Json "/reports/z" @{
 
 $report = [ordered]@{
     generatedAt = (Get-Date).ToUniversalTime().ToString("o")
-    mode = "windows-local-sidecar-5-step"
+    mode = "windows-local-sidecar-full-fiscal-regression"
     sidecar = [ordered]@{
         statusOk = $status.ok
         version = $status.version
@@ -80,6 +97,24 @@ $report = [ordered]@{
         externalCheckNumber = $saleReturn.externalCheckNumber
         checkNumber = $saleReturn.checkNumber
         shiftNumber = $saleReturn.shiftNumber
+    }
+    moneyIn = [ordered]@{
+        status = $moneyIn.status
+        operationType = $moneyIn.operationType
+        sum = $moneyIn.sum
+        externalCheckNumber = $moneyIn.externalCheckNumber
+        shiftNumber = $moneyIn.shiftNumber
+        cashBalance = $moneyIn.cashBalance
+        reconciledDuplicate = $moneyIn.reconciledDuplicate
+    }
+    moneyOut = [ordered]@{
+        status = $moneyOut.status
+        operationType = $moneyOut.operationType
+        sum = $moneyOut.sum
+        externalCheckNumber = $moneyOut.externalCheckNumber
+        shiftNumber = $moneyOut.shiftNumber
+        cashBalance = $moneyOut.cashBalance
+        reconciledDuplicate = $moneyOut.reconciledDuplicate
     }
     xReport = [ordered]@{
         status = $xReport.status

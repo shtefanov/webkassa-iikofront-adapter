@@ -449,7 +449,7 @@ public static class WebkassaSettingsDialog
             companyProfile.Text = configuration.CompanyProfile;
             cashboxUniqueNumber.Text = configuration.CashboxUniqueNumber;
             apiKey.Text = string.Empty;
-            login.Text = ResolveSecretBestEffort(provider, configuration.SecretRefs?.Login, "login");
+            login.Text = string.Empty;
             password.Text = string.Empty;
             pdfOutputDirectory.Text = (configuration.Printing ?? new AdapterPrintingOptions()).PdfOutputDirectory;
             acceptLanguage.Text = FirstNonEmpty((configuration.Printing ?? new AdapterPrintingOptions()).AcceptLanguage, "ru-RU");
@@ -458,9 +458,9 @@ public static class WebkassaSettingsDialog
             var nationalCatalog = configuration.NationalCatalog ?? new AdapterNationalCatalogOptions();
             nationalCatalogEnabled.Checked = nationalCatalog.Enabled;
             nationalCatalogBaseUrl.Text = FirstNonEmpty(nationalCatalog.BaseUrl, "https://nationalcatalog.kz/gwp");
-            nationalCatalogApiKey.Text = ResolveSecretBestEffort(provider, nationalCatalog.SecretRefs?.ApiKey, "national catalog api key");
-            nationalCatalogLogin.Text = ResolveSecretBestEffort(provider, nationalCatalog.SecretRefs?.Login, "national catalog login");
-            nationalCatalogPassword.Text = ResolveSecretBestEffort(provider, nationalCatalog.SecretRefs?.Password, "national catalog password");
+            nationalCatalogApiKey.Text = string.Empty;
+            nationalCatalogLogin.Text = string.Empty;
+            nationalCatalogPassword.Text = string.Empty;
             nationalCatalogDryRun.Checked = nationalCatalog.DryRun;
             nationalCatalogBatchSize.Value = Math.Max(nationalCatalogBatchSize.Minimum, Math.Min(nationalCatalogBatchSize.Maximum, nationalCatalog.BatchSize <= 0 ? 10 : nationalCatalog.BatchSize));
             nationalCatalogAutoBatchLimit.Value = Math.Max(nationalCatalogAutoBatchLimit.Minimum, Math.Min(nationalCatalogAutoBatchLimit.Maximum, nationalCatalog.AutoBatchLimit <= 0 ? 3 : nationalCatalog.AutoBatchLimit));
@@ -569,6 +569,12 @@ public static class WebkassaSettingsDialog
                     provider.ProtectToFile(configuration.NationalCatalog.SecretRefs.Login, nationalCatalogLogin.Text.Trim(), "national catalog login");
                 if (!string.IsNullOrEmpty(nationalCatalogPassword.Text))
                     provider.ProtectToFile(configuration.NationalCatalog.SecretRefs.Password, nationalCatalogPassword.Text, "national catalog password");
+                var sidecarTokenProvider = new DpapiFileSecretProvider(
+                    DpapiFileSecretProvider.GetSidecarIpcSecretDirectory(),
+                    DataProtectionScope.LocalMachine);
+                var sidecarTokenResolution = sidecarTokenProvider.Resolve(configuration.Sidecar.AuthTokenSecretRef, "sidecar authentication token");
+                if (!sidecarTokenResolution.Success || string.IsNullOrWhiteSpace(sidecarTokenResolution.Value))
+                    sidecarTokenProvider.ProtectToFile(configuration.Sidecar.AuthTokenSecretRef, GenerateSecureToken(), "sidecar authentication token");
 
                 var configPath = AdapterConfigurationLoader.GetDefaultConfigPath();
                 var configDirectory = Path.GetDirectoryName(configPath);
@@ -984,10 +990,14 @@ public static class WebkassaSettingsDialog
         {
             var mode = SelectedValue(authMode);
             var existingApiKeyRef = configuration.SecretRefs?.ApiKey ?? string.Empty;
+            var existingLoginRef = configuration.SecretRefs?.Login ?? string.Empty;
             var existingPasswordRef = configuration.SecretRefs?.Password ?? string.Empty;
             var provider = new DpapiFileSecretProvider(scope: DataProtectionScope.LocalMachine);
             var resolvedApiKey = string.Empty;
             var resolvedPassword = password.Text;
+            var resolvedLogin = string.IsNullOrWhiteSpace(login.Text)
+                ? ResolveSecretBestEffort(provider, existingLoginRef, "login")
+                : login.Text.Trim();
 
             if (mode != AdapterAuthOptions.LoginPasswordOnlyMode)
             {
@@ -1003,7 +1013,7 @@ public static class WebkassaSettingsDialog
                 throw new InvalidOperationException("Base URL is required.");
             if (mode != AdapterAuthOptions.LoginPasswordOnlyMode && string.IsNullOrWhiteSpace(resolvedApiKey))
                 throw new InvalidOperationException("API key is required for this auth mode.");
-            if (string.IsNullOrWhiteSpace(login.Text))
+            if (string.IsNullOrWhiteSpace(resolvedLogin))
                 throw new InvalidOperationException("Login is required.");
             if (string.IsNullOrEmpty(resolvedPassword))
                 throw new InvalidOperationException("Password is required.");
@@ -1014,10 +1024,18 @@ public static class WebkassaSettingsDialog
             {
                 BaseUrl = baseUrl.Text.Trim(),
                 ApiKey = resolvedApiKey,
-                Login = login.Text.Trim(),
+                Login = resolvedLogin,
                 Password = resolvedPassword,
                 CashboxUniqueNumber = cashboxUniqueNumber.Text.Trim()
             };
+        }
+
+        private static string GenerateSecureToken()
+        {
+            var bytes = new byte[32];
+            using (var random = RandomNumberGenerator.Create())
+                random.GetBytes(bytes);
+            return Convert.ToBase64String(bytes);
         }
 
         private NationalCatalogTestRequest BuildNationalCatalogTestRequest(bool requireApiKey = true)

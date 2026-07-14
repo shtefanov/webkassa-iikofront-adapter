@@ -36,6 +36,7 @@ internal static class Program
         private readonly ServiceOptions options;
         private Process? child;
         private StreamWriter? logWriter;
+        private volatile bool stopping;
 
         public SidecarService(ServiceOptions options)
         {
@@ -73,6 +74,10 @@ internal static class Program
             var apiKey = ResolveOptionalApiKey(provider, config);
             var login = ResolveRequired(provider, config.SecretRefs.Login, "login");
             var password = ResolveRequired(provider, config.SecretRefs.Password, "password");
+            var sidecarTokenProvider = new DpapiFileSecretProvider(
+                DpapiFileSecretProvider.GetSidecarIpcSecretDirectory(),
+                DataProtectionScope.LocalMachine);
+            var sidecarAuthToken = ResolveRequired(sidecarTokenProvider, config.Sidecar.AuthTokenSecretRef, "sidecar authentication token");
 
             var scriptPath = Path.Combine(options.ProjectRoot, "scripts", "sidecar.js");
             if (!File.Exists(scriptPath))
@@ -93,11 +98,21 @@ internal static class Program
                 startInfo.EnvironmentVariables["WEBKASSA_API_KEY"] = apiKey;
             startInfo.EnvironmentVariables["WEBKASSA_LOGIN"] = login;
             startInfo.EnvironmentVariables["WEBKASSA_PASSWORD"] = password;
+            startInfo.EnvironmentVariables["WEBKASSA_SIDECAR_AUTH_TOKEN"] = sidecarAuthToken;
 
             child = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
             child.OutputDataReceived += (_, eventArgs) => Log(eventArgs.Data);
             child.ErrorDataReceived += (_, eventArgs) => Log(eventArgs.Data);
-            child.Exited += (_, _) => Log($"Sidecar process exited. ExitCode={SafeExitCode(child)}");
+            child.Exited += (_, _) =>
+            {
+                var exitCode = SafeExitCode(child);
+                Log($"Sidecar process exited. ExitCode={exitCode}");
+                if (!stopping)
+                {
+                    Log("Terminating service wrapper so Windows Service Recovery can restart it.");
+                    Environment.Exit(exitCode == 0 ? 1 : exitCode);
+                }
+            };
 
             if (!child.Start())
                 throw new InvalidOperationException("Sidecar process did not start.");
@@ -109,6 +124,7 @@ internal static class Program
 
         protected override void OnStop()
         {
+            stopping = true;
             Log("Stopping service wrapper.");
             try
             {
@@ -185,18 +201,18 @@ internal static class Program
             }
         }
 
-        private static string SafeExitCode(Process? process)
+        private static int SafeExitCode(Process? process)
         {
             if (process == null)
-                return "unknown";
+                return -1;
 
             try
             {
-                return process.ExitCode.ToString();
+                return process.ExitCode;
             }
             catch
             {
-                return "unknown";
+                return -1;
             }
         }
 

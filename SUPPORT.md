@@ -1,8 +1,8 @@
 # Support
 
-## Private Development
+## Beta Development
 
-Use GitHub Issues for development tasks, bugs, and release tracking.
+Use GitHub Issues for beta development tasks, bugs, and release tracking.
 
 Before opening an issue, include:
 
@@ -20,8 +20,9 @@ or unsanitized support bundles.
 
 ## Customer Support
 
-After public release, customer support instructions and contact channels should
-be published on `iiko-plugin.kz`.
+Customer/deployment support instructions and contact channels should be
+published on `iiko-plugin.kz`. Do not publish an email address until it is
+approved as the official support address.
 
 ## Operational Severity
 

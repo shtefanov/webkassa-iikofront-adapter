@@ -1,5 +1,71 @@
 # Changelog
 
+## 0.11.49-beta - 14-07-2026
+
+- Made iikoFront storno idempotency stable across terminal restarts by deriving
+  refund identity from `CancellingSaleNumber` before the transient
+  `ChequeTask.Id`.
+- Prevented a retried cancellation from producing a second Webkassa return
+  when iikoFront recreates the cheque task after an interrupted workflow.
+- Retained the cumulative fiscal-turnover counter fix from `0.11.48-beta` and
+  the 50-character `ExternalCheckNumber` fix from `0.11.47-beta`.
+
+## 0.11.48-beta - 14-07-2026
+
+- Fixed iikoFront refund/storno verification after successful Webkassa
+  fiscalization. `CashPaymentSum`, `SalesSum`, `SalesSumTotal`, and non-cash
+  totals are cumulative fiscal-turnover counters in the iiko cash-register
+  contract, so returns now increase them by the absolute document amount.
+- Prevented the cashier from being prompted to retry an already fiscalized
+  Webkassa return because the adapter previously exposed net balances instead
+  of cumulative counters.
+- Retained the `0.11.47-beta` fix that caps generated
+  `ExternalCheckNumber` values at Webkassa's 50-character limit.
+
+## 0.11.47-beta - 14-07-2026
+
+- Fixed UI-originated iikoFront sale/return rejection caused by a generated
+  `ExternalCheckNumber` exceeding Webkassa's documented 50-character limit.
+- Long order/payment identifier combinations are now converted to a stable
+  SHA-256-derived short id before being persisted in `IOperationDataContext`.
+- Added a sidecar validation boundary that blocks any overlong external check
+  number before a Webkassa network call.
+
+## 0.11.46-beta - 14-07-2026
+
+### Post-audit corrections - 14-07-2026
+
+- Fixed the iikoFront-to-Webkassa fiscal contract for VAT rate/tax amount,
+  GTIN, multiple marking codes, payment aggregation, `Change`, and configured
+  UnitCode/RoundType/payment defaults.
+- Updated Webkassa 2.0.3 recovery for `Number`, `OrderNumber`,
+  `RegistratedOn`, 50-row history limits, latest-shift-first search, Code 14
+  idempotent responses, request timeouts, and single-flight authorization.
+- Persisted `ExternalCheckNumber` in iiko `IOperationDataContext` and removed
+  amount-based return deduplication.
+- Implemented Webkassa `/api/v4/MoneyOperation` for iiko pay-in/pay-out with a
+  persisted pending idempotency key.
+- Added an atomic sidecar `MoneyOperation` journal. After Webkassa accepts an
+  operation, retries with the same `ExternalCheckNumber` are answered from the
+  protected local journal; reuse of the id for another type or amount is
+  rejected before any network call.
+- Made the local deferred queue opt-in and documented that it is not Webkassa
+  autonomous fiscalization.
+- Added loopback-only authenticated sidecar IPC, official Webkassa host
+  allowlisting, separated read-only IPC-token ACLs, service-only fiscal data,
+  safer error responses, and administrator-only settings access.
+- Added durable JSON writes with fsync/process lock, Windows service recovery,
+  updater manifest/size/anti-downgrade/ZIP validation, and expanded contract
+  coverage.
+- Aligned Node/C# package version reporting at `0.11.46-beta`.
+- Passed Windows Node tests, all three .NET Framework builds with zero
+  warnings/errors, SYSTEM installation, authenticated loopback/ACL checks,
+  Windows Service Recovery, updater dry-run, service restart, plugin reload,
+  dev sale/return/pay-in/pay-out/X/Z, official `Ticket/PrintFormat`, and durable
+  MoneyOperation retry regression. The iikoFront UI-triggered `DoCheque` rerun
+  still needs an interactive terminal session because the locked console did
+  not accept automated PIN input.
+
 ## 0.11.45-beta - 13-07-2026
 
 - Renamed the iikoFront plugin release identity from
@@ -10,9 +76,6 @@
 - Added installer migration backup for the legacy
   `Webkassa.IikoFrontAdapter.Spike` plugin folder so terminals do not keep both
   plugin identities after update.
-
-## 0.11.45-beta - 13-07-2026
-
 - Added a manifest-driven Windows updater MVP for beta/stable channel updates.
 - Added update manifest generation and example beta/stable manifests for
   `iiko-plugin.kz`.
@@ -22,6 +85,21 @@
   Windows workgroup machines.
 - Documented the GitHub Release flow: changes land in beta first, then promote
   to stable only after the full regression checklist passes.
+
+Known issues:
+
+- The `loginPasswordOnly` mode is configuration-compatible, but not confirmed as
+  production-supported against Webkassa API v4. Use `apiKeyAndLoginPassword`
+  unless Webkassa confirms a production endpoint that accepts login/password
+  without `x-api-key`.
+- `LicenseModuleId=21016318` is marked `interim-assigned`; production/stable
+  rollout requires confirmation that this id is officially assigned and covered
+  by the target iikoFront license.
+- Full live fiscal regression was not rerun after the `0.11.45-beta` identity
+  rename. The release was validated for build, package, updater install,
+  sidecar health, legacy identity migration, and offline queue status.
+- National Catalog/WebNKT tools remain beta/experimental and are disabled by
+  default.
 
 ## 0.11.43-beta - 13-07-2026
 

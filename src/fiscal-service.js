@@ -25,6 +25,7 @@ class FiscalService {
 
     this.client = options.client;
     this.store = options.store;
+    this.moneyOperationStore = options.moneyOperationStore || null;
     this.environment = options.environment;
     this.companyId = options.companyId;
     this.cashboxUniqueNumber = options.cashboxUniqueNumber;
@@ -67,11 +68,16 @@ class FiscalService {
     });
 
     return run.catch(async (error) => {
-      const recovered = await this.tryRecoverSale(draft, payload, runtime, error);
-      if (recovered) return recovered;
-      const queued = this.tryQueueOfflineSale(draft, payload, runtime, error);
+      let recoveryError = null;
+      try {
+        const recovered = await this.tryRecoverSale(draft, payload, runtime, error);
+        if (recovered) return recovered;
+      } catch (caught) {
+        recoveryError = caught;
+      }
+      const queued = this.tryQueueOfflineSale(draft, payload, runtime, recoveryError || error);
       if (queued) return queued;
-      throw attachOperatorDiagnostic(error, draft, payload);
+      throw attachOperatorDiagnostic(recoveryError || error, draft, payload);
     });
   }
 
@@ -113,27 +119,33 @@ class FiscalService {
     });
 
     return run.catch(async (error) => {
-      const recovered = await this.tryRecoverReturn(draft, payload, originalSale, runtime, error);
-      if (recovered) return recovered;
-      const queued = this.tryQueueOfflineReturn(draft, payload, originalSale, runtime, error);
+      let recoveryError = null;
+      try {
+        const recovered = await this.tryRecoverReturn(draft, payload, originalSale, runtime, error);
+        if (recovered) return recovered;
+      } catch (caught) {
+        recoveryError = caught;
+      }
+      const queued = this.tryQueueOfflineReturn(draft, payload, originalSale, runtime, recoveryError || error);
       if (queued) return queued;
-      throw attachOperatorDiagnostic(error, draft, payload);
+      throw attachOperatorDiagnostic(recoveryError || error, draft, payload);
     });
   }
 
   async syncOfflineQueue(runtime = {}) {
     if (!this.offlineQueue) throw new Error('offline queue is not configured');
-    const pending = this.offlineQueue.listPending(runtime.clock || new Date());
-    const results = [];
-    for (const item of pending) {
-      try {
-        const payload = {
-          ...item.payload,
-          Token: await this.resolveToken(runtime),
-        };
-        const result = await this.checkWithAuthRefresh(payload, runtime);
-        const record = item.operation === 'sale'
-          ? this.store.upsertSale({
+    return this.queue.enqueue(this.cashboxUniqueNumber, async () => {
+      const pending = this.offlineQueue.listPending(runtime.clock || new Date());
+      const results = [];
+      for (const item of pending) {
+        try {
+          const payload = {
+            ...item.payload,
+            Token: await this.resolveToken(runtime),
+          };
+          const result = await this.checkWithAuthRefresh(payload, runtime);
+          const record = item.operation === 'sale'
+            ? this.store.upsertSale({
               environment: item.environment,
               companyId: item.companyId,
               cashboxUniqueNumber: item.cashboxUniqueNumber,
@@ -143,8 +155,8 @@ class FiscalService {
               requestPayload: redactPayload(payload),
               responseSummary: result.fiscal,
               status: 'synced_from_offline',
-            })
-          : this.store.upsertReturn({
+              })
+            : this.store.upsertReturn({
               environment: item.environment,
               companyId: item.companyId,
               cashboxUniqueNumber: item.cashboxUniqueNumber,
@@ -156,15 +168,81 @@ class FiscalService {
               requestPayload: redactPayload(payload),
               responseSummary: result.fiscal,
               status: 'synced_from_offline',
-            });
-        this.offlineQueue.markSynced(item.externalCheckNumber, record);
-        results.push({ status: 'synced', item, record });
-      } catch (error) {
-        this.offlineQueue.markFailed(item.externalCheckNumber, error);
-        results.push({ status: 'failed', item, error });
+              });
+          this.offlineQueue.markSynced(item.externalCheckNumber, record);
+          results.push({ status: 'synced', item, record });
+        } catch (error) {
+          this.offlineQueue.markFailed(item.externalCheckNumber, error);
+          results.push({ status: 'failed', item, error });
+        }
       }
+      return results;
+    });
+  }
+
+  async runMoneyOperation(operationType, sum, externalCheckNumber, runtime = {}) {
+    const type = Number(operationType);
+    const amount = Number(sum);
+    if (![0, 1].includes(type)) throw new Error('money operation type must be 0 (pay-in) or 1 (pay-out)');
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error('money operation sum must be positive');
+    if (!externalCheckNumber || typeof externalCheckNumber !== 'string') {
+      throw new Error('money operation externalCheckNumber is required');
     }
-    return results;
+
+    const journalInput = {
+      environment: this.environment,
+      companyId: this.companyId,
+      cashboxUniqueNumber: this.cashboxUniqueNumber,
+      externalCheckNumber,
+      operationType: type,
+      sum: Math.round(amount * 100) / 100,
+    };
+
+    return this.queue.enqueue(this.cashboxUniqueNumber, async () => {
+      const existing = this.moneyOperationStore && this.moneyOperationStore.find(journalInput);
+      if (existing) {
+        if (existing.operationType !== type || existing.sum !== journalInput.sum) {
+          throw new Error('money operation id was already used for a different type or amount');
+        }
+        if (existing.status === 'accepted' && existing.result) {
+          return {
+            ...existing.result,
+            status: 'accepted',
+            reconciledDuplicate: true,
+          };
+        }
+      }
+      if (this.moneyOperationStore) this.moneyOperationStore.markPending(journalInput);
+
+      const result = await this.withAuthRefresh(runtime, async (token) => {
+      const response = await this.client.moneyOperation(
+        token,
+        this.cashboxUniqueNumber,
+        type,
+        Math.round(amount * 100) / 100,
+        externalCheckNumber,
+      );
+      const data = dataOf(response) || {};
+      return {
+        status: 'accepted',
+        operationType: type,
+        sum: Math.round(amount * 100) / 100,
+        externalCheckNumber,
+        shiftNumber: Number.isFinite(Number(data.ShiftNumber)) ? Number(data.ShiftNumber) : null,
+        dateTime: data.DateTime || null,
+        dateTimeUTC: data.DateTimeUTC || null,
+        cashBalance: Number.isFinite(Number(data.Sum)) ? Number(data.Sum) : null,
+        offlineMode: Boolean(data.OfflineMode),
+        cashboxOfflineMode: Boolean(data.CashboxOfflineMode),
+        cashboxRegistrationNumber: data.Cashbox && data.Cashbox.RegistrationNumber
+          ? String(data.Cashbox.RegistrationNumber)
+          : null,
+        reconciledDuplicate: response.duplicate === true,
+      };
+      });
+      if (this.moneyOperationStore) this.moneyOperationStore.markAccepted(journalInput, result);
+      return result;
+    });
   }
 
   getOfflineQueueStats(runtime = {}) {
@@ -223,26 +301,30 @@ class FiscalService {
   async getTicketPrintFormat(externalCheckNumber, runtime = {}) {
     if (!externalCheckNumber) throw new Error('externalCheckNumber is required');
     if (!this.client.ticketPrintFormat) throw new Error('Webkassa client does not support Ticket/PrintFormat');
-    const token = await this.resolveToken(runtime);
-    const result = await this.client.ticketPrintFormat(
-      token,
-      runtime.cashboxUniqueNumber || this.cashboxUniqueNumber,
-      externalCheckNumber,
-      {
-        paperKind: runtime.paperKind ?? 0,
-        acceptLanguage: runtime.acceptLanguage || null,
-      },
-    );
-    return result.printFormat;
+    return this.queue.enqueue(this.cashboxUniqueNumber, async () => {
+      const token = await this.resolveToken(runtime);
+      const result = await this.client.ticketPrintFormat(
+        token,
+        this.cashboxUniqueNumber,
+        externalCheckNumber,
+        {
+          paperKind: runtime.paperKind ?? 0,
+          acceptLanguage: runtime.acceptLanguage || null,
+        },
+      );
+      return result.printFormat;
+    });
   }
 
   async getLicenseStatus(runtime = {}) {
     if (!this.client.clientInfo) throw new Error('Webkassa client does not support cashbox client-info');
-    const token = await this.resolveToken(runtime);
-    const response = await this.client.clientInfo(token, runtime.cashboxUniqueNumber || this.cashboxUniqueNumber);
-    return buildLicenseStatus(response, {
-      now: runtime.clock || new Date(),
-      warningDays: runtime.licenseWarningDays || this.licenseWarningDays,
+    return this.queue.enqueue(this.cashboxUniqueNumber, async () => {
+      const token = await this.resolveToken(runtime);
+      const response = await this.client.clientInfo(token, this.cashboxUniqueNumber);
+      return buildLicenseStatus(response, {
+        now: runtime.clock || new Date(),
+        warningDays: runtime.licenseWarningDays || this.licenseWarningDays,
+      });
     });
   }
 
@@ -263,14 +345,10 @@ class FiscalService {
 
   findExistingReturn(draft, originalSale, payload) {
     const exact = this.store.findByExternalCheckNumber(payload.ExternalCheckNumber);
-    if (exact) return exact;
-
-    const payloadTotal = sumPayloadPayments(payload);
-    return this.store
-      .findReturnsByOriginalSaleExternalCheckNumber(originalSale.externalCheckNumber)
-      .find((record) =>
-        record.iiko.orderId === draft.orderId &&
-        Math.abs(Number(record.fiscal.total || 0) - payloadTotal) <= 0.01) || null;
+    return exact && exact.operation === 'sale_return' &&
+      exact.originalSaleExternalCheckNumber === originalSale.externalCheckNumber
+      ? exact
+      : null;
   }
 
   mappingOptions(runtime = {}) {
@@ -355,13 +433,15 @@ class FiscalService {
   }
 
   async lookupRecoveredFiscal(payload, runtime = {}) {
-    const token = await this.resolveToken(runtime);
-    const shiftNumber = runtime.recoveryShiftNumber || runtime.shiftNumber;
-    if (shiftNumber) {
-      return this.lookupRecoveredFiscalByShift(payload, token, shiftNumber);
-    }
+    return this.queue.enqueue(this.cashboxUniqueNumber, async () => {
+      const token = await this.resolveToken(runtime);
+      const shiftNumber = runtime.recoveryShiftNumber || runtime.shiftNumber;
+      if (shiftNumber) {
+        return this.lookupRecoveredFiscalByShift(payload, token, shiftNumber);
+      }
 
-    return this.lookupRecoveredFiscalByHistoryScan(payload, token, runtime);
+      return this.lookupRecoveredFiscalByHistoryScan(payload, token, runtime);
+    });
   }
 
   async lookupRecoveredFiscalByShift(payload, token, shiftNumber) {
@@ -379,21 +459,24 @@ class FiscalService {
 
     const shiftNumbers = await this.findCandidateShiftNumbers(token, runtime);
     for (const shiftNumber of shiftNumbers) {
-      const historyResult = await this.client.checkHistory(
-        token,
-        this.cashboxUniqueNumber,
-        shiftNumber,
-        {
-          skip: 0,
-          take: runtime.recoveryCheckHistoryTake || 100,
-        },
-      );
-      const history = historyResult.history || normalizeCheckHistoryResponse(historyResult.response || historyResult);
-      const row = findHistoryRowByExternalCheckNumber(history, payload.ExternalCheckNumber);
-      if (!row) continue;
-
-      const recovered = await this.lookupRecoveredFiscalByShift(payload, token, row.shiftNumber || shiftNumber);
-      if (recovered) return recovered;
+      const take = clampPageSize(runtime.recoveryCheckHistoryTake, 50);
+      const maxPages = clampMaxPages(runtime.recoveryCheckHistoryMaxPages, 10);
+      for (let page = 0; page < maxPages; page += 1) {
+        const skip = page * take;
+        const historyResult = await this.client.checkHistory(
+          token,
+          this.cashboxUniqueNumber,
+          shiftNumber,
+          { skip, take },
+        );
+        const history = historyResult.history || normalizeCheckHistoryResponse(historyResult.response || historyResult);
+        const row = findHistoryRowByExternalCheckNumber(history, payload.ExternalCheckNumber);
+        if (row) {
+          const recovered = await this.lookupRecoveredFiscalByShift(payload, token, row.shiftNumber || shiftNumber);
+          if (recovered) return recovered;
+        }
+        if (history.rows.length < take || skip + history.rows.length >= history.total) break;
+      }
     }
 
     return null;
@@ -404,11 +487,21 @@ class FiscalService {
       return uniqueNumbers(runtime.recoveryShiftNumbers);
     }
 
-    const response = await this.client.shiftHistory(token, this.cashboxUniqueNumber, {
-      skip: runtime.recoveryShiftHistorySkip || 0,
-      take: runtime.recoveryShiftHistoryTake || 10,
+    const take = clampPageSize(runtime.recoveryShiftHistoryTake, 50);
+    const explicitSkip = Number.isInteger(runtime.recoveryShiftHistorySkip);
+    const first = await this.client.shiftHistory(token, this.cashboxUniqueNumber, {
+      skip: explicitSkip ? runtime.recoveryShiftHistorySkip : 0,
+      take,
     });
-    return extractShiftNumbers(response);
+    let response = first;
+    const total = extractTotal(first);
+    if (!explicitSkip && total > take) {
+      response = await this.client.shiftHistory(token, this.cashboxUniqueNumber, {
+        skip: Math.max(0, total - take),
+        take,
+      });
+    }
+    return extractShiftNumbers(response).reverse();
   }
 
   tryQueueOfflineSale(draft, payload, runtime, error) {
@@ -465,11 +558,6 @@ function redactPayload(payload) {
     ...payload,
     Token: payload.Token ? '__REDACTED__' : payload.Token,
   };
-}
-
-function sumPayloadPayments(payload) {
-  if (!payload || !Array.isArray(payload.Payments)) return 0;
-  return payload.Payments.reduce((sum, payment) => sum + Number(payment.Sum || 0), 0);
 }
 
 function reportSummary(response) {
@@ -637,6 +725,34 @@ function extractShiftNumbers(response) {
   return uniqueNumbers(candidates.map((row) => (
     row.ShiftNumber || row.shiftNumber || row.Number || row.number
   )));
+}
+
+function extractTotal(response) {
+  const body = response && response.body ? response.body : response;
+  const data = dataOf(response);
+  const candidates = [
+    data && data.Total,
+    data && data.Count,
+    body && body.Total,
+    body && body.Count,
+  ];
+  for (const value of candidates) {
+    const number = Number(value);
+    if (Number.isInteger(number) && number >= 0) return number;
+  }
+  return extractShiftNumbers(response).length;
+}
+
+function clampPageSize(value, fallback) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number <= 0) return fallback;
+  return Math.min(number, 50);
+}
+
+function clampMaxPages(value, fallback) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number <= 0) return fallback;
+  return Math.min(number, 100);
 }
 
 function arrayFromUnknown(value) {

@@ -10,7 +10,7 @@ Security fixes are applied to the active `beta` branch and the latest promoted
 Do not open public issues containing secrets, customer data, logs with tokens,
 API keys, passwords, DPAPI files, or exploitable details.
 
-For the private repository, create a GitHub issue with:
+For non-sensitive beta bugs, create a GitHub issue with:
 
 - short summary;
 - affected version;
@@ -20,8 +20,8 @@ For the private repository, create a GitHub issue with:
 - expected impact;
 - proposed mitigation if known.
 
-For public/customer releases, use the security contact published on
-`iiko-plugin.kz`.
+For security-sensitive reports or customer releases, use the security contact
+published on `iiko-plugin.kz`.
 
 ## Secret Handling
 
@@ -46,3 +46,13 @@ target for stable releases.
 
 The updater must verify checksums or signatures before replacing an installed
 plugin and must never disable TLS certificate validation.
+
+The local sidecar binds only to loopback. All non-liveness endpoints require a
+DPAPI-protected bearer token. Webkassa API credentials, fiscal results, and
+backups are service/admin-only. Sidecar config and logs are read-only for the
+iikoFront account; that account also receives read-only access to the separate
+IPC-token directory.
+
+Stable releases remain blocked until the package/manifest signature is
+verified against an approved pinned public key. SHA256 from the same download
+origin detects corruption but is not sufficient against origin compromise.

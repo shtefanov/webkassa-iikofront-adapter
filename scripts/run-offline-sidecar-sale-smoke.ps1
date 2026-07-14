@@ -1,14 +1,17 @@
 param(
     [string]$BaseUrl = "http://127.0.0.1:17777",
     [string]$OutDir = "docs\smoke-tests",
-    [string]$FirewallRuleName = "OpenClaw Webkassa offline smoke block node 443"
+    [string]$FirewallRuleName = "OpenClaw Webkassa offline smoke block node 443",
+    [string]$SidecarAuthToken = $env:WEBKASSA_SIDECAR_AUTH_TOKEN
 )
 
 $ErrorActionPreference = "Stop"
+if ([string]::IsNullOrWhiteSpace($SidecarAuthToken)) { throw "WEBKASSA_SIDECAR_AUTH_TOKEN is required." }
+$authHeaders = @{ Authorization = "Bearer $SidecarAuthToken" }
 
 function Get-Json {
     param([Parameter(Mandatory = $true)][string]$Path)
-    Invoke-RestMethod -Method Get -Uri ($BaseUrl.TrimEnd("/") + $Path)
+    Invoke-RestMethod -Method Get -Uri ($BaseUrl.TrimEnd("/") + $Path) -Headers $authHeaders
 }
 
 function Post-Json {
@@ -18,7 +21,7 @@ function Post-Json {
     )
 
     $json = $Body | ConvertTo-Json -Depth 30
-    Invoke-RestMethod -Method Post -Uri ($BaseUrl.TrimEnd("/") + $Path) -ContentType "application/json" -Body $json
+    Invoke-RestMethod -Method Post -Uri ($BaseUrl.TrimEnd("/") + $Path) -Headers $authHeaders -ContentType "application/json" -Body $json
 }
 
 function Remove-OfflineFirewallRule {

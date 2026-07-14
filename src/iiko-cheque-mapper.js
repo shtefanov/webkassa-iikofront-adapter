@@ -3,6 +3,7 @@ const { returnBasisFromFiscalResult } = require('./webkassa-normalizers');
 
 const OPERATION_TYPE_SALE = 2;
 const OPERATION_TYPE_RETURN = 3;
+const EXTERNAL_CHECK_NUMBER_MAX_LENGTH = 50;
 
 function mapIikoSaleDraftToWebkassaPayload(draft, options) {
   validateDraft(draft);
@@ -30,12 +31,19 @@ function mapIikoReturnDraftToWebkassaPayload(draft, originalSaleFiscalResult, op
 
 function buildBasePayload(draft, context, operation) {
   const positions = draft.positions.map((position, index) => mapPosition(position, context, index));
-  const payments = draft.payments.map((payment) => mapPayment(payment, context));
-  const positionsTotal = roundMoney(sumPositions(positions));
+  const payments = aggregatePayments(draft.payments.map((payment) => mapPayment(payment, context)));
+  const positionsTotal = roundReceiptTotal(positions, context.roundType);
   const paymentsTotal = roundMoney(sumPayments(payments));
 
   if (Math.abs(positionsTotal - paymentsTotal) > 0.01) {
     throw new Error(`iiko draft total mismatch: positions=${positionsTotal}, payments=${paymentsTotal}`);
+  }
+
+  if (typeof operation.externalCheckNumber !== 'string' || !operation.externalCheckNumber.trim()) {
+    throw new Error('ExternalCheckNumber is required');
+  }
+  if (operation.externalCheckNumber.length > EXTERNAL_CHECK_NUMBER_MAX_LENGTH) {
+    throw new Error(`ExternalCheckNumber must not exceed ${EXTERNAL_CHECK_NUMBER_MAX_LENGTH} characters`);
   }
 
   return {
@@ -44,7 +52,7 @@ function buildBasePayload(draft, context, operation) {
     OperationType: operation.operationType,
     Positions: positions,
     Payments: payments,
-    Change: roundMoney(draft.change || 0),
+    Change: draft.change === undefined || draft.change === null ? null : roundMoney(draft.change),
     RoundType: context.roundType,
     ExternalCheckNumber: operation.externalCheckNumber,
     ExternalOrderNumber: String(draft.orderNumber || draft.orderId),
@@ -59,16 +67,27 @@ function mapPosition(position, context, index) {
   requireValue(position.count, `positions[${index}].count`);
   requireValue(position.price, `positions[${index}].price`);
 
+  const count = positiveNumber(position.count, `positions[${index}].count`);
+  const price = nonNegativeNumber(position.price, `positions[${index}].price`);
+  const discount = roundMoney(position.discount || 0);
+  const markup = roundMoney(position.markup || 0);
+  const taxPercent = normalizeTaxPercent(position);
+  if (position.isTaxable === true && taxPercent === null) {
+    throw new Error(`positions[${index}].taxPercent is required when isTaxable is true`);
+  }
+  const taxable = position.isTaxable === true || taxPercent !== null;
+  const taxableTotal = roundPositionTotal((count * price) - discount + markup, context.roundType);
+
   const payload = {
-    Count: positiveNumber(position.count, `positions[${index}].count`),
-    Price: nonNegativeNumber(position.price, `positions[${index}].price`),
-    TaxPercent: position.taxPercent ?? null,
-    Tax: roundMoney(position.tax || 0),
-    TaxType: position.taxType ?? context.taxType,
+    Count: count,
+    Price: price,
+    TaxPercent: taxable ? taxPercent : null,
+    Tax: taxable ? calculateIncludedTax(taxableTotal, taxPercent) : 0,
+    TaxType: taxable ? normalizeTaxType(position.taxType, context.taxType) : 0,
     PositionName: String(position.name),
     PositionCode: String(position.code || position.productId || `IIKO-${index + 1}`),
-    Discount: roundMoney(position.discount || 0),
-    Markup: roundMoney(position.markup || 0),
+    Discount: discount,
+    Markup: markup,
     SectionCode: String(position.sectionCode || context.sectionCode),
     UnitCode: Number(position.unitCode || context.unitCode),
     WarehouseType: position.warehouseType ?? context.warehouseType,
@@ -84,11 +103,19 @@ function mapPayment(payment, context) {
 
   return {
     Sum: positiveNumber(payment.sum, 'payment.sum'),
-    PaymentType: normalizePaymentType(payment.paymentType, context.paymentType),
+    PaymentType: normalizePaymentType(payment.paymentType, context.paymentType, context.paymentTypeMap),
   };
 }
 
-function normalizePaymentType(value, defaultPaymentType) {
+function aggregatePayments(payments) {
+  const sums = new Map();
+  for (const payment of payments) {
+    sums.set(payment.PaymentType, roundMoney((sums.get(payment.PaymentType) || 0) + payment.Sum));
+  }
+  return Array.from(sums, ([PaymentType, Sum]) => ({ PaymentType, Sum }));
+}
+
+function normalizePaymentType(value, defaultPaymentType, paymentTypeMap = {}) {
   const rawValue = value ?? defaultPaymentType;
   if (typeof rawValue === 'number') return requireSupportedPaymentType(rawValue, 'payment.paymentType');
 
@@ -115,6 +142,11 @@ function normalizePaymentType(value, defaultPaymentType) {
     cashless: 1,
     cash_less: 1,
     'cash-less': 1,
+    mobile: 4,
+    mobilepayment: 4,
+    mobile_payment: 4,
+    'mobile-payment': 4,
+    ...paymentTypeMap,
   }[normalized];
 
   if (mapped !== undefined) return mapped;
@@ -146,14 +178,25 @@ function normalizeOptions(options) {
     token: options.token,
     cashboxUniqueNumber: options.cashboxUniqueNumber,
     externalCheckNumber: options.externalCheckNumber || null,
-    unitCode: options.defaultUnitCode || 796,
-    roundType: options.defaultRoundType || 2,
-    paymentType: options.defaultPaymentType ?? 0,
-    taxType: options.defaultTaxType ?? 0,
+    unitCode: options.defaultUnitCode ?? options.unitCode ?? 796,
+    roundType: normalizeRoundType(options.defaultRoundType ?? options.roundType ?? 2),
+    paymentType: options.defaultPaymentType ?? options.paymentType ?? 0,
+    paymentTypeMap: normalizePaymentTypeMap(options.paymentTypeMap),
+    taxType: options.defaultTaxType ?? options.taxType ?? 100,
     sectionCode: options.defaultSectionCode || '1',
     warehouseType: options.defaultWarehouseType ?? 0,
     webnkt: normalizeWebNktOptions(options.webnkt),
   };
+}
+
+function normalizePaymentTypeMap(value) {
+  if (!value || typeof value !== 'object') return {};
+  const result = {};
+  for (const [key, paymentType] of Object.entries(value)) {
+    if (paymentType === null || paymentType === undefined || paymentType === '') continue;
+    result[String(key).trim().toLowerCase()] = requireSupportedPaymentType(Number(paymentType), `paymentTypeMap.${key}`);
+  }
+  return result;
 }
 
 function normalizeWebNktOptions(value) {
@@ -200,7 +243,7 @@ function buildExternalCheckNumber(draft, operation) {
   ].filter(Boolean);
 
   const readable = parts.map(safeIdPart).filter(Boolean).join('-');
-  if (readable.length <= 64) return readable;
+  if (readable.length <= EXTERNAL_CHECK_NUMBER_MAX_LENGTH) return readable;
 
   const digest = createHash('sha256').update(readable).digest('hex').slice(0, 16);
   return `${safeIdPart(`iiko-${operation}`)}-${digest}`;
@@ -219,6 +262,56 @@ function sumPositions(positions) {
   return positions.reduce((sum, position) => (
     sum + (position.Count * position.Price) - position.Discount + position.Markup
   ), 0);
+}
+
+function roundReceiptTotal(positions, roundType) {
+  const positionTotals = positions.map((position) => roundPositionTotal(
+    (position.Count * position.Price) - position.Discount + position.Markup,
+    roundType,
+  ));
+  const total = positionTotals.reduce((sum, value) => sum + value, 0);
+  return roundType === 3 ? roundInteger(total) : roundMoney(total);
+}
+
+function roundPositionTotal(value, roundType) {
+  if (roundType === 2) return roundInteger(value);
+  return roundMoney(value);
+}
+
+function roundInteger(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) throw new Error(`invalid money value: ${value}`);
+  return Math.round(number);
+}
+
+function normalizeRoundType(value) {
+  const number = Number(value);
+  if (![0, 2, 3].includes(number)) {
+    throw new Error('options.defaultRoundType must be one of Webkassa RoundType values: 0, 2, 3');
+  }
+  return number;
+}
+
+function normalizeTaxPercent(position) {
+  const raw = position.taxPercent ?? position.vat;
+  if (raw === undefined || raw === null || raw === '') return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || value > 100) {
+    throw new Error(`invalid tax percent: ${raw}`);
+  }
+  return value;
+}
+
+function normalizeTaxType(positionTaxType, defaultTaxType) {
+  const value = Number(positionTaxType);
+  if (Number.isFinite(value) && value > 0) return value;
+  const fallback = Number(defaultTaxType);
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : 100;
+}
+
+function calculateIncludedTax(total, taxPercent) {
+  if (taxPercent === null || taxPercent === 0) return 0;
+  return roundMoney(total * (taxPercent / 100) / (1 + (taxPercent / 100)));
 }
 
 function sumPayments(payments) {
@@ -249,6 +342,7 @@ function requireValue(value, fieldName) {
 
 module.exports = {
   buildExternalCheckNumber,
+  EXTERNAL_CHECK_NUMBER_MAX_LENGTH,
   mapIikoReturnDraftToWebkassaPayload,
   mapIikoSaleDraftToWebkassaPayload,
   OPERATION_TYPE_RETURN,

@@ -95,6 +95,11 @@ public sealed class DpapiFileSecretProvider : ISecretProvider
         return Path.Combine(programData, "WebkassaIikoFrontAdapter", "secrets");
     }
 
+    public static string GetSidecarIpcSecretDirectory()
+    {
+        return Path.Combine(GetDefaultSecretDirectory(), "ipc");
+    }
+
     public static string HashSecretRef(string secretRef)
     {
         using (var sha = SHA256.Create())

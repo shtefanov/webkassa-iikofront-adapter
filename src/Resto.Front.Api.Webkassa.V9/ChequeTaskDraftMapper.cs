@@ -1,6 +1,8 @@
 using System;
 using System.Globalization;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using Resto.Front.Api.Data.Device.Tasks;
 
 namespace Resto.Front.Api.Webkassa.V9;
@@ -54,7 +56,16 @@ public static class ChequeTaskDraftMapper
             ? FirstNonEmpty(draft.RefundId, draft.PaymentId, draft.OrderNumber)
             : FirstNonEmpty(draft.PaymentId, draft.OrderNumber);
 
-        return $"{prefix}-{draft.OrderId}-{tail}";
+        var readable = $"{prefix}-{draft.OrderId}-{tail}";
+        if (readable.Length <= 50)
+            return readable;
+
+        using (var sha256 = SHA256.Create())
+        {
+            var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(readable));
+            var digest = string.Concat(hash.Take(8).Select(value => value.ToString("x2", CultureInfo.InvariantCulture)));
+            return $"{prefix}-{digest}";
+        }
     }
 
     private static IikoChequePositionDraft MapSale(ChequeSale sale)
@@ -73,9 +84,21 @@ public static class ChequeTaskDraftMapper
             ProductId = sale.ProductId == Guid.Empty ? null : sale.ProductId,
             Discount = sale.DiscountSum,
             Markup = sale.IncreaseSum,
-            Vat = sale.Vat,
+            IsTaxable = sale.IsTaxable,
+            TaxPercent = sale.IsTaxable ? sale.Vat : null,
             SectionCode = sale.Section
         };
+
+        draft.Nkt.Gtin = NullIfWhiteSpace(sale.GtinCode);
+
+        if (sale.Codes != null)
+        {
+            draft.MarkList.AddRange(sale.Codes
+                .Where(group => group != null)
+                .SelectMany(group => group)
+                .Where(identifier => identifier != null && !string.IsNullOrWhiteSpace(identifier.Code))
+                .Select(identifier => identifier.Code));
+        }
 
         if (sale.OrderItemIds != null)
             draft.OrderItemIds.AddRange(sale.OrderItemIds.Where(id => id != Guid.Empty));
@@ -179,11 +202,15 @@ public static class ChequeTaskDraftMapper
         if (!(task.IsRefund || task.IsProductRefund || task.IsCancellation))
             return null;
 
-        if (task.Id.HasValue)
-            return task.Id.Value.ToString("D");
-
+        // iikoFront can create a new ChequeTask.Id when a storno is retried
+        // after restart. CancellingSaleNumber identifies the original fiscal
+        // sale and stays stable across those retries, so it must win over the
+        // transient task id for Webkassa idempotency.
         if (task.CancellingSaleNumber > 0)
             return $"cancel-sale-{task.CancellingSaleNumber.ToString(CultureInfo.InvariantCulture)}";
+
+        if (task.Id.HasValue)
+            return task.Id.Value.ToString("D");
 
         return $"refund-order-{task.OrderNumber.ToString(CultureInfo.InvariantCulture)}";
     }

@@ -1,11 +1,13 @@
 const http = require('http');
+const { timingSafeEqual } = require('crypto');
 const { buildSupportBundle } = require('./support-bundle');
 
 function createSidecarServer(options = {}) {
   const fiscalService = options.fiscalService || null;
   const supportBundleOptions = options.supportBundleOptions || null;
-  const version = options.version || '0.3.0-spike';
+  const version = options.version || '0.11.49-beta';
   const status = options.status || {};
+  const authToken = options.authToken || null;
 
   return http.createServer(async (request, response) => {
     try {
@@ -17,14 +19,20 @@ function createSidecarServer(options = {}) {
         return sendJson(response, 200, { version });
       }
 
+      if (authToken && !hasValidBearerToken(request, authToken)) {
+        return sendJson(response, 401, { ok: false, error: 'unauthorized' });
+      }
+
       if (request.method === 'GET' && request.url === '/status') {
         const offline = offlineStatus(fiscalService);
         return sendJson(response, 200, {
-          ok: true,
+          ok: Boolean(fiscalService),
+          status: fiscalService ? 'ready' : 'not_configured',
           version,
           protocolVersion: status.protocolVersion || '2.0.3',
           writeFiscalData: status.writeFiscalData !== false,
-          offlineAutonomousHours: status.offlineAutonomousHours || 72,
+          offlineAutonomousHours: status.offlineAutonomousHours ?? 0,
+          localDeferredQueueMaxHours: status.localDeferredQueueMaxHours ?? status.offlineAutonomousHours ?? 0,
           offlineQueue: offline,
           webNktSupported: status.webNktSupported !== false,
           fiscalServiceConfigured: Boolean(fiscalService),
@@ -34,29 +42,41 @@ function createSidecarServer(options = {}) {
       if (request.method === 'POST' && request.url === '/fiscalize/sale') {
         requireFiscalService(fiscalService);
         const body = await readJsonBody(request);
-        const result = await fiscalService.fiscalizeSaleDraft(body.draft, body.runtime || {});
+        const result = await fiscalService.fiscalizeSaleDraft(body.draft, safeRuntime(body.runtime));
         return sendJson(response, 200, sidecarResult(result));
       }
 
       if (request.method === 'POST' && request.url === '/fiscalize/return') {
         requireFiscalService(fiscalService);
         const body = await readJsonBody(request);
-        const result = await fiscalService.fiscalizeReturnDraft(body.draft, body.runtime || {});
+        const result = await fiscalService.fiscalizeReturnDraft(body.draft, safeRuntime(body.runtime));
         return sendJson(response, 200, sidecarResult(result));
       }
 
       if (request.method === 'POST' && request.url === '/reports/x') {
         requireFiscalService(fiscalService);
         const body = await readJsonBody(request);
-        const result = await fiscalService.runXReport(body.runtime || {});
+        const result = await fiscalService.runXReport(safeRuntime(body.runtime));
         return sendJson(response, 200, sidecarReportResult(result));
       }
 
       if (request.method === 'POST' && request.url === '/reports/z') {
         requireFiscalService(fiscalService);
         const body = await readJsonBody(request);
-        const result = await fiscalService.runZReport(body.runtime || {});
+        const result = await fiscalService.runZReport(safeRuntime(body.runtime));
         return sendJson(response, 200, sidecarReportResult(result));
+      }
+
+      if (request.method === 'POST' && request.url === '/money-operation') {
+        requireFiscalService(fiscalService);
+        const body = await readJsonBody(request);
+        const result = await fiscalService.runMoneyOperation(
+          body.operationType,
+          body.sum,
+          body.externalCheckNumber,
+          safeRuntime(body.runtime),
+        );
+        return sendJson(response, 200, { ok: true, ...result });
       }
 
       if (request.method === 'GET' && request.url === '/offline/status') {
@@ -76,14 +96,14 @@ function createSidecarServer(options = {}) {
       if (request.method === 'POST' && request.url === '/offline/sync') {
         requireFiscalService(fiscalService);
         const body = await readJsonBody(request);
-        const results = await fiscalService.syncOfflineQueue(body.runtime || {});
+        const results = await fiscalService.syncOfflineQueue(safeRuntime(body.runtime));
         return sendJson(response, 200, sidecarOfflineSyncResult(results, fiscalService.getOfflineQueueStats()));
       }
 
       if (request.method === 'POST' && request.url === '/tickets/by-order') {
         requireFiscalService(fiscalService);
         const body = await readJsonBody(request);
-        const records = fiscalService.findFiscalRecordsByIikoOrderId(body.iikoOrderId, body.runtime || {});
+        const records = fiscalService.findFiscalRecordsByIikoOrderId(body.iikoOrderId, safeRuntime(body.runtime));
         return sendJson(response, 200, {
           ok: true,
           records: records.map(ticketRecord),
@@ -93,7 +113,7 @@ function createSidecarServer(options = {}) {
       if (request.method === 'POST' && request.url === '/tickets/print-format') {
         requireFiscalService(fiscalService);
         const body = await readJsonBody(request);
-        const printFormat = await fiscalService.getTicketPrintFormat(body.externalCheckNumber, body.runtime || {});
+        const printFormat = await fiscalService.getTicketPrintFormat(body.externalCheckNumber, safeRuntime(body.runtime));
         return sendJson(response, 200, {
           ok: true,
           externalCheckNumber: body.externalCheckNumber,
@@ -103,9 +123,12 @@ function createSidecarServer(options = {}) {
 
       if (request.method === 'POST' && request.url === '/support-bundle') {
         const body = await readJsonBody(request);
+        const configuredOptions = typeof supportBundleOptions === 'function'
+          ? await supportBundleOptions()
+          : supportBundleOptions;
         const bundle = buildSupportBundle({
-          ...(supportBundleOptions || {}),
           ...(body || {}),
+          ...(configuredOptions || {}),
         });
         return sendJson(response, 200, bundle);
       }
@@ -115,11 +138,41 @@ function createSidecarServer(options = {}) {
       return sendJson(response, 500, {
         ok: false,
         status: 'error',
-        error: error.message,
+        error: error.operatorDiagnostic && error.operatorDiagnostic.title || 'sidecar_request_failed',
         operatorDiagnostic: error.operatorDiagnostic || null,
       });
     }
   });
+}
+
+function safeRuntime(value) {
+  const runtime = value && typeof value === 'object' ? value : {};
+  return {
+    allowOffline: runtime.allowOffline === true,
+    originalSaleExternalCheckNumber: stringOrNull(runtime.originalSaleExternalCheckNumber),
+    externalCheckNumber: stringOrNull(runtime.externalCheckNumber),
+    recoveryShiftNumber: integerOrNull(runtime.recoveryShiftNumber),
+    shiftNumber: integerOrNull(runtime.shiftNumber),
+    paperKind: integerOrNull(runtime.paperKind),
+    acceptLanguage: stringOrNull(runtime.acceptLanguage),
+  };
+}
+
+function stringOrNull(value) {
+  return typeof value === 'string' && value.length <= 256 ? value : null;
+}
+
+function integerOrNull(value) {
+  const number = Number(value);
+  return Number.isInteger(number) ? number : null;
+}
+
+function hasValidBearerToken(request, expectedToken) {
+  const header = String(request.headers.authorization || '');
+  if (!header.startsWith('Bearer ')) return false;
+  const actual = Buffer.from(header.slice(7), 'utf8');
+  const expected = Buffer.from(String(expectedToken), 'utf8');
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
 function requireFiscalService(fiscalService) {
@@ -182,6 +235,7 @@ function ticketRecord(record) {
     ticketUrl: record.fiscal && record.fiscal.ticketUrl,
     ticketPrintUrl: record.fiscal && record.fiscal.ticketPrintUrl,
     total: record.fiscal && record.fiscal.total,
+    offlineMode: Boolean(record.fiscal && record.fiscal.offlineMode),
   };
 }
 

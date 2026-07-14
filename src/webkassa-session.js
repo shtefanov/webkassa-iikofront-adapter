@@ -5,13 +5,21 @@ class WebkassaSession {
     this.client = options.client;
     this.credentialsProvider = options.credentialsProvider;
     this.token = null;
+    this.pendingAuthorization = null;
   }
 
   async getToken() {
     if (this.token) return this.token;
-    const credentials = await this.credentialsProvider();
-    this.token = await this.client.authorize(credentials);
-    return this.token;
+    if (!this.pendingAuthorization) {
+      this.pendingAuthorization = (async () => {
+        const credentials = await this.credentialsProvider();
+        this.token = await this.client.authorize(credentials);
+        return this.token;
+      })().finally(() => {
+        this.pendingAuthorization = null;
+      });
+    }
+    return this.pendingAuthorization;
   }
 
   invalidate() {
@@ -32,6 +40,7 @@ function isAuthorizationError(error) {
 }
 
 function isRecoverableWriteError(error) {
+  if (error && String(error.webkassaCode) === '14') return true;
   const message = String(error && error.message || error || '').toLowerCase();
   return (
     message.includes('timeout') ||

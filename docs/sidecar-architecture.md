@@ -1,6 +1,6 @@
 # Sidecar Architecture
 
-Date: 02-07-2026
+Updated: 14-07-2026
 
 ## Decision
 
@@ -40,7 +40,17 @@ Current endpoints:
 - `GET /license/status`
 - `POST /fiscalize/sale`
 - `POST /fiscalize/return`
+- `POST /money-operation`
+- `POST /reports/x`
+- `POST /reports/z`
+- `GET /offline/status`
+- `POST /offline/sync`
+- `POST /tickets/by-order`
+- `POST /tickets/print-format`
 - `POST /support-bundle`
+
+Only `/health` and `/version` are unauthenticated. Every other endpoint requires
+the per-installation bearer token stored separately with Windows DPAPI.
 
 The server is dependency-free and uses Node.js built-in `http`.
 
@@ -59,7 +69,8 @@ C# adapter config:
   "enabled": true,
   "baseUrl": "http://127.0.0.1:17777",
   "timeoutMs": 30000,
-  "healthPath": "/health"
+  "healthPath": "/health",
+  "authTokenSecretRef": "Webkassa sidecar authentication token"
 }
 ```
 
@@ -79,9 +90,7 @@ Content-Type: application/json
     "payments": []
   },
   "runtime": {
-    "environment": "dev",
-    "companyId": "demo-company",
-    "cashboxUniqueNumber": "SWK00035753"
+    "externalCheckNumber": "stable-id-persisted-with-iiko-operation"
   }
 }
 ```
@@ -102,13 +111,15 @@ Content-Type: application/json
     "payments": []
   },
   "runtime": {
-    "environment": "dev",
-    "companyId": "demo-company",
-    "cashboxUniqueNumber": "SWK00035753",
+    "externalCheckNumber": "stable-return-id",
     "originalSaleExternalCheckNumber": "optional-known-sale-key"
   }
 }
 ```
+
+Environment, company, cashbox, Webkassa token, and credentials are never taken
+from the caller's runtime object. They come only from the sidecar's validated
+configuration and protected secret store.
 
 Successful response:
 
@@ -127,10 +138,11 @@ Successful response:
 ```json
 {
   "ok": true,
-  "version": "0.11.45-beta",
+  "version": "0.11.49-beta",
   "protocolVersion": "2.0.3",
   "writeFiscalData": true,
-  "offlineAutonomousHours": 72,
+  "offlineAutonomousHours": 0,
+  "localDeferredQueueMaxHours": 0,
   "webNktSupported": true,
   "fiscalServiceConfigured": true
 }
@@ -153,7 +165,7 @@ Those lines are generated from the Webkassa X/Z response itself, not from
 `Ticket/PrintFormat`, because `Ticket/PrintFormat` applies to fiscal tickets by
 `ExternalCheckNumber`.
 
-Starting with `0.11.18-beta`, the local sidecar exposes offline queue
+Starting with `0.11.18-beta`, the local sidecar exposes a project-local deferred queue
 operations:
 
 ```text
@@ -161,6 +173,7 @@ GET  /offline/status
 POST /offline/sync
 ```
 
+This is not the official Webkassa autonomous mode and is disabled by default.
 `GET /status` includes `offlineQueue` counters. Fiscalization calls with
 `runtime.allowOffline=true` can return `status=queued_offline` when Webkassa is
 temporarily unreachable. The iikoFront adapter treats this as a locally queued
@@ -210,9 +223,35 @@ Validated again on 11-07-2026 with the target local-terminal topology:
 - evidence:
   `docs/smoke-tests/2026-07-10T21-03-01-311Z_windows-local-sidecar-5-step.json`.
 
+Validated on 14-07-2026 with the audited `0.11.46-beta` sidecar package:
+
+- Windows service restart and configured Service Recovery returned healthy;
+- dev sale `1780644543735` and linked return `1780644543989` passed in shift `8`;
+- pay-in/pay-out, X-report `3`, and Z-report `4` passed;
+- official `Ticket/PrintFormat` returned 40 lines including text, image, and QR;
+- an accepted MoneyOperation retry was served from `money-operations.json`
+  after service restart and did not change Webkassa cash balance;
+- iikoFront reloaded the installed plugin DLL `0.11.46.0` with
+  `LicenseModuleId=21016318`;
+- evidence: `docs/smoke-tests/2026-07-14T06-45-53-547Z_windows-local-sidecar-full-fiscal-regression.json`
+  and `docs/smoke-tests/2026-07-14T07-09-22Z_windows-sidecar-post-restart-regression.json`.
+
+Validated from an active iikoFront session with final `0.11.49-beta`:
+
+- UI sale and full cancellation passed Webkassa and iikoFront
+  `IncomeSumVerifier`;
+- generated external check numbers stayed within Webkassa's 50-character
+  limit;
+- cancellation identity used stable `OrderId + CancellingSaleNumber`;
+- UI receipt print produced a 148548-byte PDF through official
+  `Ticket/PrintFormat`;
+- final SYSTEM install and updater dry-run reported healthy `0.11.49-beta` and
+  verified package SHA256/size;
+- evidence summary: `docs/windows-regression-0.11.49-beta.md`.
+
 ## Security Boundary
 
-The sidecar should listen only on localhost by default:
+The sidecar is restricted to localhost; startup rejects any other bind host:
 
 ```text
 127.0.0.1
@@ -234,6 +273,10 @@ Starting with `0.11.3-beta`, the target terminal topology is local-only:
 - iikoFront adapter config: `sidecar.baseUrl=http://127.0.0.1:17777`;
 - Webkassa secrets: Windows DPAPI `LocalMachine` protected files under
   `%ProgramData%\WebkassaIikoFrontAdapter\secrets`;
+- sidecar bearer token: a separate DPAPI file under the protected `ipc`
+  secret directory; the iikoFront plugin identity receives read-only access;
+- sidecar data, offline queue, API credentials, and backups: Windows service
+  identity only; inherited permissive ACLs are removed by the installer;
 - no gateway or other intermediate host is required for normal terminal
   operation.
 
@@ -242,7 +285,10 @@ without a separate security review and explicit approval.
 
 ## Open Items
 
-- add sidecar auth for local plugin calls if needed;
-- add graceful shutdown and log rotation.
+- add explicit graceful shutdown coordination; log retention already runs on
+  startup and daily;
+- add a signed stable update channel after an approved public key/certificate
+  is available;
 - keep the supervised sidecar on the same Windows terminal as iikoFront for
-  terminal operation; gateway-hosted sidecar is only a development fallback.
+  terminal operation; the gateway runner is loopback-only local development
+  tooling and is not a remote terminal fallback.

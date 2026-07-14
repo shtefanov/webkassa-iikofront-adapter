@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { createHash } = require('crypto');
 const { returnBasisFromFiscalResult } = require('./webkassa-normalizers');
+const { withFileLock, writeJsonAtomic } = require('./durable-json-file');
 
 const SCHEMA_VERSION = 1;
 
@@ -36,10 +37,7 @@ class FiscalResultStore {
   }
 
   write(state) {
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(tempPath, `${JSON.stringify(state, null, 2)}\n`);
-    fs.renameSync(tempPath, this.filePath);
+    writeJsonAtomic(this.filePath, state);
   }
 
   backup(backupPath = null) {
@@ -47,6 +45,7 @@ class FiscalResultStore {
     const targetPath = backupPath || `${this.filePath}.${new Date().toISOString().replace(/[:.]/g, '-')}.bak`;
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
     fs.copyFileSync(this.filePath, targetPath);
+    fs.chmodSync(targetPath, 0o600);
     return targetPath;
   }
 
@@ -95,17 +94,23 @@ class FiscalResultStore {
 
   upsertRecord(input) {
     validateRecordInput(input);
-    const state = this.read();
-    const existingIndex = state.records.findIndex((record) => record.externalCheckNumber === input.externalCheckNumber);
-    const existing = existingIndex >= 0 ? state.records[existingIndex] : null;
-    const createdAt = existing ? existing.createdAt : nowIso();
-    const record = normalizeRecord(input, createdAt);
+    return withFileLock(this.filePath, () => {
+      const state = this.read();
+      const existingIndex = state.records.findIndex((record) =>
+        record.environment === input.environment &&
+        record.companyId === input.companyId &&
+        record.cashboxUniqueNumber === input.cashboxUniqueNumber &&
+        record.externalCheckNumber === input.externalCheckNumber);
+      const existing = existingIndex >= 0 ? state.records[existingIndex] : null;
+      const createdAt = existing ? existing.createdAt : nowIso();
+      const record = normalizeRecord(input, createdAt);
 
-    if (existingIndex >= 0) state.records[existingIndex] = record;
-    else state.records.push(record);
+      if (existingIndex >= 0) state.records[existingIndex] = record;
+      else state.records.push(record);
 
-    this.write(state);
-    return record;
+      this.write(state);
+      return record;
+    });
   }
 
   findByExternalCheckNumber(externalCheckNumber) {

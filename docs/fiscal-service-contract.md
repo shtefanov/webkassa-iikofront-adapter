@@ -1,6 +1,6 @@
 # FiscalService Contract
 
-Date: 02-07-2026
+Updated: 14-07-2026
 
 ## Purpose
 
@@ -15,6 +15,8 @@ should only adapt `ChequeTask` into `IikoChequeDraft` and pass it to this core.
 - Map sale draft to Webkassa sale payload.
 - Map return draft plus original sale fiscal result to Webkassa return payload.
 - Serialize fiscal writes per cashbox through `CashboxQueue`.
+- Serialize X/Z reports, cash operations, ticket reads, license reads, recovery,
+  and deferred-queue sync through the same cashbox executor.
 - Persist successful sale fiscal results.
 - Persist successful return fiscal results linked to original sale.
 - Avoid duplicate Webkassa calls when the same `ExternalCheckNumber` is already
@@ -23,17 +25,28 @@ should only adapt `ChequeTask` into `IikoChequeDraft` and pass it to this core.
 - Refresh token once through `WebkassaSession` when Webkassa rejects a write
   with an authorization/token error.
 - Recover after a lost-response style write error by looking up the same
-  `ExternalCheckNumber` when `ShiftNumber` is known.
+  `ExternalCheckNumber`; when the shift is unknown, scan paged shift/check
+  history newest-first with Webkassa's maximum `Take=50`.
+- Treat Webkassa code `14` as idempotent success only when the response also
+  contains valid fiscal `Data`. The separate MoneyOperation path reconciles
+  code `14` against its persisted pending operation id because Webkassa defines
+  it as already processed and exposes no money-operation lookup endpoint.
+- Perform official Webkassa `/api/v4/MoneyOperation` pay-in/pay-out calls with a
+  stable persisted operation id.
+- Persist pending/accepted MoneyOperation state in a separate atomic journal;
+  accepted retries are served locally and id reuse with a changed type/amount
+  is rejected.
 - Attach `operatorDiagnostic` to unrecovered errors.
 
 ## Current Non-Responsibilities
 
-Not implemented here yet:
+Not implemented here:
 
-- Network retry policy.
-- production Windows storage provider selection.
-- iikoFront UI rendering for operator diagnostics.
-- deployment into iikoFront.
+- official Webkassa autonomous/offline fiscal mode;
+- cryptographic signing for stable update packages;
+- multi-cashbox execution inside one sidecar process (run isolated instances);
+- iikoFront UI rendering and terminal deployment, which remain adapter/setup
+  responsibilities.
 
 ## Idempotency Rule
 
@@ -53,8 +66,8 @@ between concurrent requests.
 
 `CashboxQueue` serializes tasks per `CashboxUniqueNumber`.
 
-Requests for the same cashbox run sequentially. Requests for different cashboxes
-may later be allowed to run independently.
+One sidecar process supports exactly one cashbox and one protected data
+directory. Run isolated sidecar instances for additional cashboxes.
 
 ## Token Rule
 
@@ -110,4 +123,10 @@ Covered by contract tests:
 - lost-response recovery can persist a recovered sale by `ExternalCheckNumber`.
 - lost-response recovery can find the needed shift through shift/check history
   when the original `ShiftNumber` is unknown.
+- history scan checks the latest shift first and obeys `Take <= 50`.
+- Webkassa code `14` plus valid fiscal data is reconciled without a duplicate
+  write.
+- cash pay-in/pay-out uses `/api/v4/MoneyOperation`.
+- accepted cash-operation retries do not issue a second Webkassa call and the
+  journal survives sidecar restart.
 - unrecovered errors include redacted `operatorDiagnostic`.

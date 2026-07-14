@@ -1,6 +1,6 @@
 # iikoFront ChequeTask Mapper
 
-Date: 02-07-2026
+Updated: 14-07-2026
 
 ## Purpose
 
@@ -57,7 +57,10 @@ Relevant `ChequeSale` fields:
 - `Sum`
 - `ProductId`
 - `Section`
+- `IsTaxable`
 - `Vat`
+- `GtinCode`
+- `Codes`
 - `DiscountSum`
 - `IncreaseSum`
 - `OrderItemIds`
@@ -81,16 +84,16 @@ Relevant `ChequePayment` fields:
 
 1. receives `ChequeTask`;
 2. maps it to `IikoChequeDraft`;
-3. builds a candidate `ExternalCheckNumber`;
+3. restores or stores a stable `ExternalCheckNumber` through
+   `IOperationDataContext`;
 4. logs a safe summary:
    - external check number;
    - sale/return flag;
    - position count;
    - payment count;
    - warning count;
-5. throws the existing controlled not-implemented `DeviceException`.
-
-No Webkassa request is sent.
+5. enriches NKT identifiers and calls the authenticated local sidecar in live
+   mode, or remains local in explicit dry-run mode.
 
 ## Mapping Notes
 
@@ -109,6 +112,15 @@ Payments:
 - otherwise `CashPayment` is used;
 - `CardPayments`, `PrepaymentSum`, `CreditSum`, and `ConsiderationSum` are
   preserved as separate payment rows.
+- sidecar mapping converts configured iiko payment names/types and aggregates
+  them to one Webkassa row per type.
+
+Tax and marking:
+
+- `IsTaxable` and `Vat` map to Webkassa `TaxType=100`, `TaxPercent`, and
+  calculated included VAT;
+- `GtinCode` maps to the NKT GTIN field;
+- every non-empty iiko `Codes` item maps to Webkassa `markList`.
 
 Warnings are collected instead of fiscalizing blindly:
 
@@ -117,12 +129,13 @@ Warnings are collected instead of fiscalizing blindly:
 - position total mismatch;
 - payment total mismatch.
 
-## Open Items For Demo iikoFront
+## Remaining validation
 
-Real demo fixtures are still needed to confirm:
+The corrected source still requires a fresh Windows/iikoFront regression to
+confirm:
 
 - whether `Id` is stable enough for `PaymentId` / `RefundId`;
 - whether return `ChequeTask` exposes original sale linkage;
-- exact unit, tax, department, section, and payment mapping required by the
-  Kazakh fiscal rules and Webkassa payload;
+- unit, department/section, mixed payment, VAT/rounding, GTIN, and multiple
+  marking-code behavior against actual Webkassa results;
 - whether verbose `ChequeTask` capture needs a separate debug mode.

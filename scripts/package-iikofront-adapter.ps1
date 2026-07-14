@@ -122,7 +122,9 @@ Copy-Item -Path (Join-Path $repoRoot "package.json") -Destination $sidecarRuntim
 
 $configStageDir = Join-Path $stageDir "config"
 New-Item -ItemType Directory -Force -Path $configStageDir | Out-Null
-Copy-Item -Path (Join-Path $repoRoot "config/*.json") -Destination $configStageDir
+Get-ChildItem -Path (Join-Path $repoRoot "config") -Filter "*.json" -File |
+    Where-Object { $_.Name -notlike "update-manifest.*.example.json" } |
+    Copy-Item -Destination $configStageDir
 
 Copy-Item -Path (Join-Path $repoRoot "scripts/install-iikofront-terminal.ps1") -Destination $stageDir
 
@@ -151,17 +153,20 @@ $manifest = [ordered]@{
     iikoManifestTemplateIncluded = (Test-Path $iikoManifestTemplate)
     webkassaProtocolVersion = "2.0.3"
     writeFiscalDataRequired = $true
-    offlineAutonomousHours = 72
-    syncOnReconnectRequired = $true
+    webkassaAutonomousModeImplemented = $false
+    localDeferredQueueDefaultEnabled = $false
+    localDeferredQueueMaxHours = 72
     webNktSupported = $true
     webNktFieldMapConfigurable = $true
     sidecarBridgeSupported = $true
     sidecarDefaultBaseUrl = "http://127.0.0.1:17777"
+    sidecarBearerAuthenticationRequired = $true
     sidecarStatusEndpoint = "/status"
     sidecarSaleEndpoint = "/fiscalize/sale"
     sidecarReturnEndpoint = "/fiscalize/return"
     sidecarXReportEndpoint = "/reports/x"
     sidecarZReportEndpoint = "/reports/z"
+    sidecarMoneyOperationEndpoint = "/money-operation"
     sidecarTicketPrintFormatEndpoint = "/tickets/print-format"
     sidecarOfflineStatusEndpoint = "/offline/status"
     sidecarOfflineSyncEndpoint = "/offline/sync"
@@ -169,7 +174,7 @@ $manifest = [ordered]@{
     receiptPrintFormatDefaultPaperKind = 0
     redactedFileLogger = $true
     supportBundleWebNktDiagnostics = $true
-    offlineSaleReturnSyncCovered = $true
+    fiscalStorageProvider = "durable-json"
     includesSetupUtility = $true
     includesTerminalInstaller = $true
     includesUpdater = $true

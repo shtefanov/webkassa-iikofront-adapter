@@ -49,6 +49,8 @@ if ($existing) {
 }
 
 & sc.exe description $ServiceName "Runs the local Webkassa sidecar for iikoFront on this terminal." | Out-Null
+& sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/15000/restart/60000 | Out-Null
+& sc.exe failureflag $ServiceName 1 | Out-Null
 Start-Service -Name $ServiceName
 Start-Sleep -Seconds 3
 Get-Service -Name $ServiceName

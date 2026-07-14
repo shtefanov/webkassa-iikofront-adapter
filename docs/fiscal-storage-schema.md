@@ -1,6 +1,6 @@
 # Fiscal Storage Schema
 
-Date: 02-07-2026
+Updated: 14-07-2026
 
 ## Purpose
 
@@ -8,9 +8,18 @@ The module must persist every successful Webkassa sale result before any later
 return can be fiscalized. Webkassa protocol `2.0.3` requires return basis data
 from the original sale check.
 
-The current implementation uses a small JSON file store for tests and early
-development. Production can replace it with SQLite/PostgreSQL, but the logical
-fields below must stay stable.
+The current implementation uses a dependency-free durable JSON store in the
+protected sidecar data directory. Writes use a same-directory temporary file,
+file/directory fsync, atomic rename, mode `0600`, and an exclusive lock. A lock
+owned by a live process is never removed; crash-stale locks are recovered.
+Windows installer ACLs restrict the store to service/admin identities.
+
+The same protected directory also contains `money-operations.json`. Before a
+Webkassa pay-in/pay-out call, the sidecar writes a `pending` record containing
+the environment/company/cashbox identity, `ExternalCheckNumber`, operation
+type, and amount. After acceptance it atomically stores the non-secret response
+summary. A later retry with the same id/type/amount returns that accepted result
+without a network call; reuse of the id for another type or amount is rejected.
 
 ## Required Sale Record
 
@@ -60,9 +69,9 @@ diagnostic instead of sending a Webkassa return without basis data.
 
 ## Required Indexes
 
-Production storage should enforce:
+Storage enforces or queries:
 
-- unique `(environment, cashboxUniqueNumber, externalCheckNumber)`;
+- unique `(environment, companyId, cashboxUniqueNumber, externalCheckNumber)`;
 - lookup by `iiko.orderId`;
 - lookup by original sale `externalCheckNumber`;
 - optional lookup by Webkassa `checkNumber` and `shiftNumber`.
@@ -82,5 +91,7 @@ For audit, store only:
 ## Current Code
 
 - `src/fiscal-result-store.js`
+- `src/money-operation-store.js`
+- `src/durable-json-file.js`
 - `src/webkassa-normalizers.js`
 - `tests/contract/webkassa-contract.test.js`

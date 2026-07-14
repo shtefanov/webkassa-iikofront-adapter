@@ -102,9 +102,11 @@ Capture:
 - support bundle WebNKT diagnostics;
 - whether WebNKT produced/used temporary XTIN.
 
-## Phase 6: Offline Queue Validation
+## Phase 6: Local Deferred Queue Validation
 
-Purpose: verify 72-hour autonomous behavior without production risk.
+Purpose: verify the project-local deferred queue without representing it as
+official Webkassa autonomous fiscalization. The feature remains disabled by
+default and requires separate business/legal approval before a live test.
 
 Scenarios:
 
@@ -114,9 +116,9 @@ Scenarios:
    before return.
 4. Simulate an item older than 72 hours and confirm it becomes `expired`.
 
-Do not perform long real-time 72-hour waits. Use controlled clock/test mode for
-expiry validation, then perform a short live connectivity interruption test on
-demo only.
+Do not perform long real-time waits. Use controlled clock/test mode for expiry
+validation. A live connectivity interruption is allowed only on a demo cashbox
+after explicit approval and must preserve terminal/VPN management access.
 
 Disallowed without separate approval:
 

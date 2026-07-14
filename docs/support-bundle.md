@@ -1,6 +1,6 @@
 # Redacted Support Bundle
 
-Date: 02-07-2026
+Updated: 14-07-2026
 
 ## Purpose
 
@@ -25,6 +25,8 @@ credentials or raw customer-sensitive payloads.
 - operator diagnostics;
 - WebNKT identifier diagnostics;
 - summarized fiscal records;
+- deferred-queue metadata (status, stable ids, timestamps, attempts, redacted
+  last error) without queued request payloads;
 - request/response hashes;
 - fiscal identifiers:
   - `ExternalCheckNumber`;

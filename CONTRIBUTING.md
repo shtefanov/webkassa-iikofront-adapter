@@ -1,6 +1,8 @@
 # Contributing
 
-This repository is private and maintained for the Webkassa iikoFront adapter.
+This repository is public, but the project is proprietary and maintained for
+the Webkassa iikoFront adapter. Public source visibility does not grant an
+open-source license.
 
 ## Branches
 

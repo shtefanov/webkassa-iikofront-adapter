@@ -8,11 +8,11 @@ public sealed class WebkassaCashRegisterFactory : MarshalByRefObject, ICashRegis
 {
     public string FactoryCode => "WebkassaFiscalAdapterSpike";
 
-    public string Description => "Webkassa fiscal adapter spike";
+    public string Description => "Webkassa fiscal adapter";
 
     public DeviceSettings DefaultDeviceSettings => new CashRegisterSettings
     {
-        FriendlyName = "Webkassa Fiscal Adapter Spike",
+        FriendlyName = "Webkassa Fiscal Adapter",
         FactoryCode = FactoryCode,
         Description = Description,
         Autorun = true,

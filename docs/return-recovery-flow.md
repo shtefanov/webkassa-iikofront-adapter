@@ -1,10 +1,11 @@
 # Return, Recovery, and Idempotency Flow
 
-Date: 02-07-2026
+Updated: 14-07-2026
 
 ## Sale Flow
 
-1. Build a stable `ExternalCheckNumber` from iiko identifiers.
+1. Restore or create a stable `ExternalCheckNumber` and persist it through
+   iiko V9 `IOperationDataContext` before the sidecar call.
 2. Send Webkassa sale request.
 3. If Webkassa returns success, normalize the response with
    `normalizeCheckResponse`.
@@ -45,8 +46,10 @@ Observed requirement in the test environment:
   sale `CheckNumber`, `DateTime`, `CashboxRegistrationNumber`, `Total`, and
   offline flag immediately after successful sale fiscalization.
 
-If `ShiftNumber` is not known locally, the module should first query shift/check
-history for the cashbox and then retry lookup with the candidate shift.
+If `ShiftNumber` is not known locally, the module queries paged shift/check
+history newest-first (`Take <= 50`, bounded page count) and then retries lookup
+with the candidate shift. Recovery uses the same per-cashbox sequential queue
+as writes and reports.
 
 `Check/History` parsing is covered for both shapes observed or expected from
 Webkassa-style APIs:
@@ -80,9 +83,9 @@ Not safe to retry blindly:
 - `src/fiscal-result-store.js`
 - `scripts/webkassa-smoke.js`
 
-Latest validation:
+Validation status:
 
-- `npm test` passed.
-- `npm run smoke:readonly -- --secret-source bitwarden` passed.
-- `npm run smoke:fiscal -- --execute-fiscal --secret-source bitwarden` passed,
-  creating test sale `1779627623696` and test return `1779627623901`.
+- corrected Node contract tests passed on 14-07-2026;
+- the older read-only/fiscal smoke evidence predates the full audit changes;
+- a fresh Windows/iikoFront sale/return/Code14/restart regression is required
+  before publishing a corrected beta.

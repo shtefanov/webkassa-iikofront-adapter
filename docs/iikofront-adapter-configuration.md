@@ -4,9 +4,10 @@ Date: 02-07-2026
 
 ## Purpose
 
-The adapter must be usable by multiple companies and cashboxes. Runtime values
-such as Webkassa endpoint, cashbox number, fiscal defaults, storage path, and
-SecretRefs must be configurable and not hardcoded.
+Runtime values such as Webkassa endpoint, cashbox number, fiscal defaults,
+storage path, and SecretRefs are configurable and not hardcoded. One sidecar
+process and one data directory serve exactly one Webkassa cashbox; additional
+cashboxes require isolated sidecar instances.
 
 Raw API keys, logins, passwords, and tokens must not be stored in config files.
 
@@ -48,7 +49,8 @@ The default path is intended for terminal-local adapter configuration.
   "defaults": {
     "unitCode": 796,
     "roundType": 2,
-    "paymentType": 0
+    "paymentType": 0,
+    "paymentTypeMap": {}
   },
   "fiscalization": {
     "protocolVersion": "2.0.3",
@@ -63,7 +65,7 @@ The default path is intended for terminal-local adapter configuration.
     "acceptLanguage": "ru-RU"
   },
   "offline": {
-    "enabled": true,
+    "enabled": false,
     "maxOfflineHours": 72,
     "syncOnReconnect": true
   },
@@ -77,15 +79,22 @@ The default path is intended for terminal-local adapter configuration.
       "name": "NomenclatureName"
     }
   },
+  "sidecar": {
+    "enabled": true,
+    "baseUrl": "http://127.0.0.1:17777",
+    "timeoutMs": 30000,
+    "healthPath": "/health",
+    "authTokenSecretRef": "Webkassa dev SWK00035753 sidecar authentication token"
+  },
   "requestPolicy": {
     "timeoutMs": 30000,
-    "maxRetries": 1,
+    "maxRetries": 0,
     "retryOnlyWithExternalCheckNumber": true,
     "serializePerCashbox": true
   },
   "storage": {
-    "provider": "sqlite",
-    "path": "%ProgramData%\\WebkassaIikoFrontAdapter\\fiscal-results.sqlite"
+    "provider": "json",
+    "path": "fiscal-results.json"
   },
   "logging": {
     "level": "info",
@@ -100,7 +109,20 @@ The default path is intended for terminal-local adapter configuration.
 }
 ```
 
+`requestPolicy.maxRetries` must remain `0` in the current release. A lost
+response is recovered by the same `ExternalCheckNumber`; an iiko operation
+retry reuses the id persisted in `IOperationDataContext`. The adapter does not
+perform a blind network retry that could race a delayed fiscal response. The
+one token refresh after an authorization error is a separate operation.
+
 ## Secret Provider Boundary
+
+Configuration stores only SecretRef labels. Webkassa API key/login/password are
+resolved by the Windows sidecar service from LocalMachine DPAPI files; they are
+not restored into the iikoFront settings UI. The sidecar bearer token uses a
+separate DPAPI `secrets\ipc` directory so the iikoFront identity receives only
+read access to that one IPC credential. Raw secret values do not belong in JSON,
+logs, support bundles, Archive, or release artifacts.
 
 ## Log Retention
 
@@ -158,21 +180,24 @@ The adapter config must contain:
 
 The config validator rejects any other protocol version.
 
-## Offline Mode
+## Local Deferred Queue
 
-The adapter must support Webkassa autonomous operation for up to 72 hours:
+The local deferred queue is disabled by default:
 
 ```json
 "offline": {
-  "enabled": true,
+  "enabled": false,
   "maxOfflineHours": 72,
   "syncOnReconnect": true
 }
 ```
 
-The config validator rejects values other than `72` for `maxOfflineHours`.
+This queue is not Webkassa autonomous fiscalization. Official autonomous mode
+is performed by Webkassa and returns fiscal data with `OfflineMode=true` in the
+API response. A locally queued request has no fiscal sign and must not be
+treated as a successfully fiscalized receipt.
 
-Starting with `0.11.18-beta`, if connectivity is unavailable, iikoFront
+Only after an explicit business/legal approval, `offline.enabled=true` makes iikoFront
 fiscalization calls pass `allowOffline=true` to the sidecar. Recoverable
 Webkassa/network write errors can then be written to the local offline queue
 and returned to iikoFront as `queued_offline`. After connectivity is restored,
@@ -189,15 +214,31 @@ GET  /offline/status
 POST /offline/sync
 ```
 
-`GET /status` also returns offline queue counters. If
-`offline.syncOnReconnect=true`, the sidecar periodically checks the local queue
-and attempts synchronization only when pending operations exist.
+`GET /status` also returns offline queue counters. Only if both
+`offline.enabled=true` and `offline.syncOnReconnect=true`, the sidecar
+periodically checks the local queue and attempts synchronization when pending
+operations exist.
 
 For `queued_offline` operations, the real Webkassa fiscal ticket is not
 available until synchronization. If the cashier requested paper printing, the
 iikoFront adapter prints a clearly marked non-fiscal pending notice. The
 official fiscal receipt must be printed/reprinted after synchronization through
 Webkassa `Ticket/PrintFormat`.
+
+Production installations should keep this feature disabled until Webkassa
+confirms the intended offline integration flow and operator reconciliation is
+approved.
+
+## Sidecar Security
+
+The sidecar binds only to loopback and refuses non-loopback `--host` values.
+All endpoints except liveness `/health` and version `/version` require a bearer
+token stored with DPAPI in the separate `secrets\\ipc` directory. The iikoFront
+account receives read-only access only to that IPC token; Webkassa API
+credentials and fiscal-result files remain service/admin-only.
+
+`baseUrl` is restricted to `https://devkkm.webkassa.kz` for development and
+`https://kkm.webkassa.kz` for production.
 
 ## Receipt Print Format
 
@@ -289,23 +330,17 @@ The official Webkassa Postman collection documents `GTIN`, `NTIN`, `ProductId`,
 and `WarehouseType` in `/api/v4/check` positions. The field map remains
 configurable for future WebNKT/API changes.
 
-Current code includes the interface only:
+Current code includes the secret-provider boundary and a DPAPI file provider for
+installed Windows terminals:
 
-```csharp
-public interface ISecretProvider
-{
-    SecretResolution Resolve(string secretRef, string purpose);
-}
-```
+- `SecretProvider.cs` defines the interface and resolution result.
+- `DpapiFileSecretProvider.cs` reads machine-local protected values from
+  `%ProgramData%\WebkassaIikoFrontAdapter\secrets`.
+- `tools/Webkassa.IikoFrontAdapter.Setup` writes protected values through the
+  setup utility/settings workflow.
 
-The active implementation is `DeferredSecretProvider`. It confirms that the
-config contains SecretRefs but intentionally does not resolve raw secrets yet.
-
-Future production providers:
-
-- Windows Credential Manager;
-- DPAPI-protected local secret file;
-- Bitwarden/bitwargen helper for development/test environments.
+Development smoke tools may also resolve SecretRefs through Bitwarden, but raw
+secrets must never be committed to config files.
 
 ## Auth Mode
 
@@ -338,9 +373,11 @@ the settings dialog as their owner. The screen edits:
 - paper receipt printing mode, Windows printer, PDF output directory,
   `Ticket/PrintFormat` paper kind, and `Accept-Language`.
 
-The dialog saves raw API key/password values only into DPAPI LocalMachine
-protected files. Existing API key/password values are not shown back in the
-dialog; leaving those fields empty keeps the previous protected secret.
+The dialog opens only in an elevated Windows administrator session. The dialog
+saves raw credential values only into DPAPI LocalMachine protected files.
+Existing API key, login, password, and National Catalog credentials are never
+loaded back into UI controls; leaving fields empty keeps the previous protected
+secret.
 
 The dialog also has a `Тест` button. It uses the values currently entered in
 the form, calls Webkassa `/api/v4/Authorize`, then validates the entered
@@ -363,21 +400,26 @@ DPAPI-protected values when they already exist.
 
 ## Current Runtime Behavior
 
-The adapter does not yet load config during fiscalization. The config layer is
-present as the next boundary before connecting real Webkassa calls.
+Starting with the `0.11.x-beta` line, the adapter loads terminal-local config
+and uses the local sidecar for live fiscalization when
+`sidecar.enabled=true` and `fiscalization.writeFiscalData=true`.
 
-The current spike still:
+Runtime flow:
 
-- registers the cash register factory;
-- maps `ChequeTask` to `IikoChequeDraft`;
-- logs safe summary data;
-- throws controlled not-implemented errors for fiscal operations.
+- the iikoFront plugin registers the external cash register factory;
+- iikoFront `ChequeTask` values are mapped to `IikoChequeDraft`;
+- the sidecar authorizes with Webkassa and performs sale, sale-return,
+  `MoneyOperation` pay-in/pay-out, X-report, Z-report, ticket print-format
+  lookup, and optional deferred queue synchronization;
+- all Webkassa requests for the cashbox run through one sequential executor;
+- fiscal results are written to local state for return-basis and recovery;
+- settings and setup tools store raw credentials only as DPAPI-protected local
+  secret files.
 
-## Next Step
+Unsupported or non-production paths are explicit:
 
-After demo iikoFront access:
-
-1. Confirm where adapter config should live on the terminal.
-2. Choose the first protected secret provider.
-3. Wire config validation into plugin startup.
-4. Block fiscal writes until config validation and connection test pass.
+- `dryRunDoCheque=true` is only for demo/test call-path validation;
+- National Catalog/WebNKT tools remain beta/experimental and are disabled by
+  default in the example config;
+- `loginPasswordOnly` is a compatibility mode and is not confirmed as
+  production-supported for Webkassa API v4.

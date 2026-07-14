@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
+using System.Security.Principal;
 using Resto.Front.Api.Data.Orders;
 using Resto.Front.Api;
 using Resto.Front.Api.Attributes;
@@ -73,12 +74,28 @@ public sealed class Plugin : MarshalByRefObject, IFrontPlugin
         var viewManager = args.Item1;
         try
         {
+            if (!IsElevatedAdministrator())
+            {
+                viewManager.ShowErrorPopup(
+                    "Настройки Webkassa доступны только в административном сеансе Windows. Используйте Webkassa.IikoFrontAdapter.Setup.exe с повышенными правами.",
+                    "Закрыть");
+                return;
+            }
             WebkassaSettingsDialog.Show();
         }
         catch (Exception error)
         {
             PluginContext.Log.Error($"Webkassa settings dialog failed. Error={error.GetType().Name}: {error.Message}");
             viewManager.ShowErrorPopup($"Не удалось открыть настройки Webkassa: {error.Message}", "Закрыть");
+        }
+    }
+
+    private static bool IsElevatedAdministrator()
+    {
+        using (var identity = WindowsIdentity.GetCurrent())
+        {
+            var principal = new WindowsPrincipal(identity);
+            return principal.IsInRole(WindowsBuiltInRole.Administrator);
         }
     }
 

@@ -49,6 +49,92 @@ function Grant-Modify([string]$Path, [string]$Account) {
     }
 }
 
+function Grant-Read([string]$Path, [string]$Account) {
+    if ([string]::IsNullOrWhiteSpace($Account) -or -not (Test-Path $Path)) { return }
+    & icacls $Path /grant "$Account`:(OI)(CI)RX" /T | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Failed to grant read permission on $Path to $Account." }
+}
+
+function Protect-ServiceDirectory([string]$Path, [string]$UntrustedAccount) {
+    if (-not (Test-Path $Path)) { return }
+
+    $systemSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+    $administratorsSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+
+    # Older hardened installs can contain protected child ACLs owned by SYSTEM.
+    # Normalize ownership first, then make every child inherit a deterministic
+    # SYSTEM/Administrators-only ACL from the service directory root.
+    & icacls $Path /setowner '*S-1-5-32-544' /T /C | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Failed to normalize ownership for $Path." }
+
+    $acl = New-Object Security.AccessControl.DirectorySecurity
+    $acl.SetAccessRuleProtection($true, $false)
+    $acl.SetOwner($administratorsSid)
+    $inheritance = [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit
+    $propagation = [Security.AccessControl.PropagationFlags]::None
+    $allow = [Security.AccessControl.AccessControlType]::Allow
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($systemSid, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, $propagation, $allow))
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($administratorsSid, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, $propagation, $allow))
+    Set-Acl -LiteralPath $Path -AclObject $acl
+
+    Get-ChildItem -LiteralPath $Path -Force | ForEach-Object {
+        & icacls $_.FullName /reset /T /C | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Failed to reset child ACLs under $Path." }
+    }
+
+    $allowedSids = @($systemSid.Value, $administratorsSid.Value)
+    @((Get-Item -LiteralPath $Path)) + @(Get-ChildItem -LiteralPath $Path -Recurse -Force) | ForEach-Object {
+        $itemAcl = Get-Acl -LiteralPath $_.FullName
+        foreach ($rule in $itemAcl.Access) {
+            if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
+            $ruleSid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+            if ($allowedSids -notcontains $ruleSid) {
+                throw "Unexpected principal $ruleSid retains access to service-only path $($_.FullName)."
+            }
+        }
+    }
+}
+
+function Protect-PluginWritableDirectory([string]$Path, [string]$Account) {
+    if (-not (Test-Path $Path)) { return }
+    if ([string]::IsNullOrWhiteSpace($Account)) { throw "Target iikoFront account is required for $Path." }
+
+    $systemSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+    $administratorsSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+    $targetSid = ([Security.Principal.NTAccount]::new($Account)).Translate([Security.Principal.SecurityIdentifier])
+
+    & icacls $Path /setowner '*S-1-5-32-544' /T /C | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Failed to normalize ownership for $Path." }
+
+    $acl = New-Object Security.AccessControl.DirectorySecurity
+    $acl.SetAccessRuleProtection($true, $false)
+    $acl.SetOwner($administratorsSid)
+    $inheritance = [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit
+    $propagation = [Security.AccessControl.PropagationFlags]::None
+    $allow = [Security.AccessControl.AccessControlType]::Allow
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($systemSid, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, $propagation, $allow))
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($administratorsSid, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, $propagation, $allow))
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($targetSid, [Security.AccessControl.FileSystemRights]::Modify, $inheritance, $propagation, $allow))
+    Set-Acl -LiteralPath $Path -AclObject $acl
+
+    Get-ChildItem -LiteralPath $Path -Force | ForEach-Object {
+        & icacls $_.FullName /reset /T /C | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Failed to reset child ACLs under $Path." }
+    }
+
+    $allowedSids = @($systemSid.Value, $administratorsSid.Value, $targetSid.Value)
+    @((Get-Item -LiteralPath $Path)) + @(Get-ChildItem -LiteralPath $Path -Recurse -Force) | ForEach-Object {
+        $itemAcl = Get-Acl -LiteralPath $_.FullName
+        foreach ($rule in $itemAcl.Access) {
+            if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
+            $ruleSid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+            if ($allowedSids -notcontains $ruleSid) {
+                throw "Unexpected principal $ruleSid retains access to plugin-writable path $($_.FullName)."
+            }
+        }
+    }
+}
+
 function Copy-CleanDirectory([string]$Source, [string]$Destination) {
     if (Test-Path $Destination) {
         Remove-Item -LiteralPath $Destination -Recurse -Force
@@ -115,9 +201,9 @@ $configDir = Join-Path $ProgramDataRoot "config"
 $configPath = Join-Path $configDir "webkassa-adapter.config.json"
 $logsDir = Join-Path $ProgramDataRoot "logs"
 $sidecarDataDir = Join-Path $ProgramDataRoot "sidecar"
-$managedDirs = @(
-    $configDir,
-    (Join-Path $ProgramDataRoot "secrets"),
+$secretsDir = Join-Path $ProgramDataRoot "secrets"
+$sidecarIpcSecretsDir = Join-Path $secretsDir "ipc"
+$pluginWritableDirs = @(
     (Join-Path $ProgramDataRoot "exports"),
     (Join-Path $ProgramDataRoot "nkt-cache"),
     (Join-Path $ProgramDataRoot "nkt-drafts"),
@@ -125,19 +211,26 @@ $managedDirs = @(
     (Join-Path $ProgramDataRoot "nkt-queue"),
     (Join-Path $ProgramDataRoot "nkt-store"),
     (Join-Path $ProgramDataRoot "webnkt-imports"),
-    (Join-Path $ProgramDataRoot "state"),
-    $logsDir,
-    $sidecarDataDir,
-    $backupRoot
+    (Join-Path $ProgramDataRoot "state")
 )
+$serviceOnlyDirs = @($configDir, $secretsDir, $sidecarDataDir, $backupRoot, $logsDir)
+$managedDirs = @($pluginWritableDirs) + @($serviceOnlyDirs)
 
 foreach ($dir in $managedDirs) {
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
 }
 
-foreach ($dir in $managedDirs) {
-    Grant-Modify -Path $dir -Account $targetUser
+foreach ($dir in $serviceOnlyDirs) {
+    Protect-ServiceDirectory -Path $dir -UntrustedAccount $targetUser
 }
+
+foreach ($dir in $pluginWritableDirs) {
+    Protect-PluginWritableDirectory -Path $dir -Account $targetUser
+}
+New-Item -ItemType Directory -Force -Path $sidecarIpcSecretsDir | Out-Null
+Grant-Read -Path $sidecarIpcSecretsDir -Account $targetUser
+Grant-Read -Path $configDir -Account $targetUser
+Grant-Read -Path $logsDir -Account $targetUser
 
 if (-not (Test-Path $configPath)) {
     $configSource = Join-Path $packageRootPath "config\iikofront-adapter.config.example.json"
@@ -208,6 +301,11 @@ if ($existingService) {
 }
 
 & sc.exe description $ServiceName "Runs the local Webkassa sidecar for iikoFront on this terminal." | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Failed to set the $ServiceName description." }
+& sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/15000/restart/60000 | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Failed to configure $ServiceName recovery actions." }
+& sc.exe failureflag $ServiceName 1 | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Failed to enable $ServiceName recovery for non-crash failures." }
 
 if ($StartSidecar) {
     Start-Service -Name $ServiceName

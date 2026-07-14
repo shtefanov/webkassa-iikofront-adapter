@@ -1,5 +1,4 @@
-const fs = require('fs');
-const path = require('path');
+const { writeJsonAtomic } = require('./durable-json-file');
 
 const REDACTED = '__REDACTED__';
 
@@ -20,14 +19,34 @@ function buildSupportBundle(input = {}) {
     configSummary: summarizeConfig(input.config || {}),
     webnktDiagnostics: summarizeWebNktDiagnostics(input.webnktDiagnostics, input.fiscalState || { records: [] }),
     fiscalRecords: summarizeFiscalRecords(input.fiscalState || { records: [] }),
+    offlineQueue: summarizeOfflineQueue(input.offlineQueueState || { items: [] }),
     notes: Array.isArray(input.notes) ? input.notes.map(String) : [],
   };
 }
 
+function summarizeOfflineQueue(state) {
+  const items = Array.isArray(state.items) ? state.items : [];
+  return items.map((item) => redactDeep({
+    id: item.id || null,
+    status: item.status || null,
+    operation: item.operation || null,
+    environment: item.environment || null,
+    companyId: item.companyId || null,
+    cashboxUniqueNumber: item.cashboxUniqueNumber || null,
+    externalCheckNumber: item.externalCheckNumber || null,
+    originalSaleExternalCheckNumber: item.originalSaleExternalCheckNumber || null,
+    iikoOrderId: item.iiko && item.iiko.orderId || null,
+    createdAt: item.createdAt || null,
+    expiresAt: item.expiresAt || null,
+    updatedAt: item.updatedAt || null,
+    syncAttempts: Number(item.syncAttempts || 0),
+    lastError: item.lastError || null,
+  }));
+}
+
 function writeSupportBundle(filePath, bundle) {
   if (!filePath) throw new Error('filePath is required');
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify(redactDeep(bundle), null, 2)}\n`);
+  writeJsonAtomic(filePath, redactDeep(bundle));
   return filePath;
 }
 
@@ -145,6 +164,7 @@ module.exports = {
   buildSupportBundle,
   redactDeep,
   summarizeFiscalRecords,
+  summarizeOfflineQueue,
   summarizeWebNktDiagnostics,
   writeSupportBundle,
 };

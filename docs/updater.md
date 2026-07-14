@@ -35,20 +35,41 @@ https://iiko-plugin.kz/updates/webkassa/stable.json
 
 Each manifest must include:
 
+- `schemaVersion`;
+- `project`;
 - `channel`;
 - `version`;
 - `packageUrl`;
+- `packageFileName`;
+- `packageSize`;
 - `sha256`;
-- `signature` when signing is enabled;
 - `minIikoFrontVersion`;
 - `minIikoFrontApiVersion`;
+- `supportedIikoFrontApiVersions`;
 - `releaseNotesUrl`;
-- `publishedAt` in `DD-MM-YYYY` format.
+- `publishedAt` as RFC3339 with timezone.
+
+Do not publish an empty `signature` field. Add a signature field only after
+package/manifest signing is implemented and the updater verifies it.
+
+The current updater validates manifest schema/project/channel, full SemVer
+precedence (including prerelease identifiers and channel compatibility),
+supported iikoFront API V9, RFC3339 publication time, trusted download host,
+package file name and size, SHA256, anti-downgrade, expanded-size limit, entry
+count, ZIP path traversal, rooted entries, and Windows alternate-data-stream
+entry names. `-AllowDowngrade` is reserved for an explicitly approved rollback.
+
+Stable promotion is still blocked until detached/package signature verification
+uses an approved pinned public key.
 
 Examples live in:
 
 - `config/update-manifest.beta.example.json`
 - `config/update-manifest.stable.example.json`
+
+These examples are intentionally excluded from the terminal ZIP. A ZIP cannot
+contain its own final size/SHA256 without making the artifact self-referential;
+generate and publish the channel manifest only after packaging completes.
 
 ## Manual Update
 
@@ -122,3 +143,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\new-release-manifest.ps1 `
 
 Publish the generated manifest only after the matching GitHub Release artifact
 and checksum are available.
+
+The current updater requires and actively validates every manifest field listed
+above. The zero SHA256 values in repository examples are placeholders and can
+never validate a real package.

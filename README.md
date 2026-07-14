@@ -3,15 +3,15 @@
 [![CI](https://github.com/shtefanov/webkassa-iikofront-adapter/actions/workflows/ci.yml/badge.svg)](https://github.com/shtefanov/webkassa-iikofront-adapter/actions/workflows/ci.yml)
 
 Webkassa fiscal adapter for iikoFront. The project contains the iikoFront
-external fiscal register plugin, local sidecar service, Webkassa API client,
-offline queue, receipt/report printing path, setup utility, test fixtures, and
+external fiscal register plugin, authenticated local sidecar service, Webkassa
+API client, opt-in deferred queue, receipt/report printing path, setup utility, test fixtures, and
 operator diagnostics.
 
 ## Status
 
-The repository is private and under active beta development.
+The repository is public and under active beta development.
 
-Current package version: `0.11.45-beta`.
+Current package version: `0.11.49-beta`.
 
 Production rollout requires the stable release checklist in
 [`docs/release-checklist.md`](docs/release-checklist.md).
@@ -22,13 +22,30 @@ Production rollout requires the stable release checklist in
 - Webkassa API v4 authorization and fiscal check integration.
 - Fiscal sale and sale-return flow with saved return basis data.
 - X-report and Z-report support through the sidecar.
+- Webkassa `MoneyOperation` support for iiko pay-in/pay-out.
 - Local print path for fiscal receipts and reports.
-- Offline queue and recovery-oriented fiscal result store.
+- Recovery-oriented fiscal result store and an opt-in local deferred queue
+  that is explicitly not Webkassa autonomous fiscalization.
 - Windows DPAPI secret storage for installed terminals.
 - Setup utility for configuration, secret entry, and connection checks.
 - Manifest-driven Windows updater for beta/stable release channels.
 - Operator-facing diagnostic messages for common Webkassa errors.
 - National Catalog helper flow for iiko product data.
+
+## Supported Runtime
+
+Confirmed terminal runtime for `0.11.49-beta`:
+
+- iikoFront API: `Resto.Front.Api.V9`.
+- Minimum confirmed iikoFront line: `9.5.x`.
+- Confirmed API DLL: `Resto.Front.Api.V9.dll` `9.5.7018.0`.
+- Confirmed Windows terminal: Windows 11 Pro x64.
+- Confirmed Node.js: `22.22.1` in gateway validation and `24.16.0` on the
+  Windows terminal.
+
+Recommended terminal Node.js: current Node.js 24.x or newer approved LTS/current
+runtime. Do not claim Windows 10 or Windows Server support until they pass the
+same install/update/fiscal regression checklist.
 
 ## Repository Layout
 
@@ -65,6 +82,10 @@ Start the sidecar in a development shell:
 ```bash
 npm run sidecar -- --secret-source env
 ```
+
+Development startup also requires a random `WEBKASSA_SIDECAR_AUTH_TOKEN` of at
+least 32 characters. The packaged Windows flow creates and stores it through
+DPAPI automatically.
 
 Build the iikoFront package on the Windows build host:
 
@@ -129,6 +150,13 @@ regression checklist passes, the same tested build is promoted through the
 `stable` channel and distributed by the updater manifest.
 
 See [`docs/release-channels.md`](docs/release-channels.md).
+
+## Known Issues
+
+Known issues are tracked per release in
+[`docs/release-known-issues.md`](docs/release-known-issues.md). GitHub Releases
+and `iiko-plugin.kz` release pages must include the same known-issues summary
+for the published version.
 
 ## Support
 

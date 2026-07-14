@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
 using System.Text;
@@ -28,6 +30,17 @@ public sealed class SidecarClient : IDisposable
         this.ownsHttpClient = ownsHttpClient;
 
         httpClient.Timeout = TimeSpan.FromMilliseconds(Configuration.Sidecar.TimeoutMs);
+        if (!Uri.TryCreate(Configuration.Sidecar.BaseUrl, UriKind.Absolute, out var sidecarUri) ||
+            sidecarUri.Scheme != Uri.UriSchemeHttp || !sidecarUri.IsLoopback)
+            throw new InvalidOperationException("Sidecar base URL must use HTTP on loopback.");
+
+        var provider = new DpapiFileSecretProvider(
+            DpapiFileSecretProvider.GetSidecarIpcSecretDirectory(),
+            DataProtectionScope.LocalMachine);
+        var token = provider.Resolve(Configuration.Sidecar.AuthTokenSecretRef, "sidecar authentication token");
+        if (!token.Success || string.IsNullOrWhiteSpace(token.Value))
+            throw new InvalidOperationException(token.ErrorMessage ?? "Sidecar authentication token is unavailable.");
+        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.Value);
     }
 
     public AdapterConfiguration Configuration { get; }
@@ -42,14 +55,14 @@ public sealed class SidecarClient : IDisposable
         return Send<object, SidecarLicenseStatusResult>(HttpMethod.Get, "/license/status", null);
     }
 
-    public SidecarFiscalizationResult FiscalizeSale(IikoChequeDraft draft)
+    public SidecarFiscalizationResult FiscalizeSale(IikoChequeDraft draft, string externalCheckNumber)
     {
-        return Fiscalize("/fiscalize/sale", draft, null);
+        return Fiscalize("/fiscalize/sale", draft, externalCheckNumber, null);
     }
 
-    public SidecarFiscalizationResult FiscalizeReturn(IikoChequeDraft draft, string? originalSaleExternalCheckNumber)
+    public SidecarFiscalizationResult FiscalizeReturn(IikoChequeDraft draft, string externalCheckNumber, string? originalSaleExternalCheckNumber)
     {
-        return Fiscalize("/fiscalize/return", draft, originalSaleExternalCheckNumber);
+        return Fiscalize("/fiscalize/return", draft, externalCheckNumber, originalSaleExternalCheckNumber);
     }
 
     public SidecarReportResult RunXReport()
@@ -60,6 +73,30 @@ public sealed class SidecarClient : IDisposable
     public SidecarReportResult RunZReport()
     {
         return RunReport("/reports/z");
+    }
+
+    public SidecarMoneyOperationResult RunMoneyOperation(int operationType, decimal sum, string externalCheckNumber)
+    {
+        if (operationType != 0 && operationType != 1)
+            throw new ArgumentOutOfRangeException(nameof(operationType));
+        if (sum <= 0m)
+            throw new ArgumentOutOfRangeException(nameof(sum));
+        if (string.IsNullOrWhiteSpace(externalCheckNumber))
+            throw new ArgumentException("externalCheckNumber is required.", nameof(externalCheckNumber));
+
+        var request = new SidecarMoneyOperationRequest
+        {
+            OperationType = operationType,
+            Sum = sum,
+            ExternalCheckNumber = externalCheckNumber,
+            Runtime = new SidecarRuntime
+            {
+                Environment = Configuration.Environment,
+                CompanyId = Configuration.CompanyProfile,
+                CashboxUniqueNumber = Configuration.CashboxUniqueNumber,
+            }
+        };
+        return Send<SidecarMoneyOperationRequest, SidecarMoneyOperationResult>(HttpMethod.Post, "/money-operation", request);
     }
 
     public SidecarTicketLookupResult FindTicketsByOrderId(string iikoOrderId)
@@ -113,7 +150,7 @@ public sealed class SidecarClient : IDisposable
             httpClient.Dispose();
     }
 
-    private SidecarFiscalizationResult Fiscalize(string path, IikoChequeDraft draft, string? originalSaleExternalCheckNumber)
+    private SidecarFiscalizationResult Fiscalize(string path, IikoChequeDraft draft, string externalCheckNumber, string? originalSaleExternalCheckNumber)
     {
         if (draft == null)
             throw new ArgumentNullException(nameof(draft));
@@ -126,6 +163,7 @@ public sealed class SidecarClient : IDisposable
                 Environment = Configuration.Environment,
                 CompanyId = Configuration.CompanyProfile,
                 CashboxUniqueNumber = Configuration.CashboxUniqueNumber,
+                ExternalCheckNumber = externalCheckNumber,
                 AllowOffline = Configuration.Offline != null && Configuration.Offline.Enabled,
                 OriginalSaleExternalCheckNumber = originalSaleExternalCheckNumber,
             }
@@ -354,6 +392,22 @@ public sealed class SidecarReportRequest
 }
 
 [DataContract]
+public sealed class SidecarMoneyOperationRequest
+{
+    [DataMember(Name = "operationType")]
+    public int OperationType { get; set; }
+
+    [DataMember(Name = "sum")]
+    public decimal Sum { get; set; }
+
+    [DataMember(Name = "externalCheckNumber")]
+    public string ExternalCheckNumber { get; set; } = string.Empty;
+
+    [DataMember(Name = "runtime")]
+    public SidecarRuntime Runtime { get; set; } = new SidecarRuntime();
+}
+
+[DataContract]
 public sealed class SidecarTicketLookupRequest
 {
     [DataMember(Name = "iikoOrderId")]
@@ -377,6 +431,9 @@ public sealed class SidecarRuntime
 
     [DataMember(Name = "originalSaleExternalCheckNumber")]
     public string? OriginalSaleExternalCheckNumber { get; set; }
+
+    [DataMember(Name = "externalCheckNumber")]
+    public string? ExternalCheckNumber { get; set; }
 
     [DataMember(Name = "allowOffline")]
     public bool AllowOffline { get; set; }
@@ -431,6 +488,9 @@ public sealed class SidecarFiscalizationResult : ISidecarResponse
     [DataMember(Name = "cashboxRegistrationNumber")]
     public string? CashboxRegistrationNumber { get; set; }
 
+    [DataMember(Name = "reconciledDuplicate")]
+    public bool ReconciledDuplicate { get; set; }
+
     [DataMember(Name = "ticketUrl")]
     public string? TicketUrl { get; set; }
 
@@ -442,6 +502,9 @@ public sealed class SidecarFiscalizationResult : ISidecarResponse
 
     [DataMember(Name = "offlineExpiresAt")]
     public string? OfflineExpiresAt { get; set; }
+
+    [DataMember(Name = "offlineMode")]
+    public bool OfflineMode { get; set; }
 
     [DataMember(Name = "error")]
     public string? Error { get; set; }
@@ -594,6 +657,52 @@ public sealed class SidecarReportResult : ISidecarResponse
 
     [DataMember(Name = "printLines")]
     public List<SidecarTicketPrintLine> PrintLines { get; set; } = new List<SidecarTicketPrintLine>();
+
+    [DataMember(Name = "error")]
+    public string? Error { get; set; }
+}
+
+[DataContract]
+public sealed class SidecarMoneyOperationResult : ISidecarResponse
+{
+    [DataMember(Name = "ok")]
+    public bool Ok { get; set; }
+
+    [DataMember(Name = "status")]
+    public string Status { get; set; } = string.Empty;
+
+    [DataMember(Name = "operationType")]
+    public int OperationType { get; set; }
+
+    [DataMember(Name = "sum")]
+    public decimal Sum { get; set; }
+
+    [DataMember(Name = "externalCheckNumber")]
+    public string ExternalCheckNumber { get; set; } = string.Empty;
+
+    [DataMember(Name = "shiftNumber")]
+    public int? ShiftNumber { get; set; }
+
+    [DataMember(Name = "dateTime")]
+    public string? DateTime { get; set; }
+
+    [DataMember(Name = "dateTimeUTC")]
+    public string? DateTimeUTC { get; set; }
+
+    [DataMember(Name = "cashBalance")]
+    public decimal? CashBalance { get; set; }
+
+    [DataMember(Name = "offlineMode")]
+    public bool OfflineMode { get; set; }
+
+    [DataMember(Name = "cashboxOfflineMode")]
+    public bool CashboxOfflineMode { get; set; }
+
+    [DataMember(Name = "cashboxRegistrationNumber")]
+    public string? CashboxRegistrationNumber { get; set; }
+
+    [DataMember(Name = "reconciledDuplicate")]
+    public bool ReconciledDuplicate { get; set; }
 
     [DataMember(Name = "error")]
     public string? Error { get; set; }

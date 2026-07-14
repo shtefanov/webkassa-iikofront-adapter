@@ -11,9 +11,10 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ReleaseNotesUrl,
     [string]$OutputPath = "",
+    [string]$Project = "webkassa",
     [string]$MinIikoFrontVersion = "9.5",
     [string]$MinIikoFrontApiVersion = "V9",
-    [string]$Signature = ""
+    [string[]]$SupportedIikoFrontApiVersions = @("V9")
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,17 +32,22 @@ if (-not $ReleaseNotesUrl.StartsWith("https://", [StringComparison]::OrdinalIgno
 }
 
 $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $PackagePath).Hash.ToLowerInvariant()
+$packageItem = Get-Item -LiteralPath $PackagePath
 
 $manifest = [ordered]@{
+    schemaVersion = 1
+    project = $Project
     channel = $Channel
     version = $Version
     packageUrl = $PackageUrl
+    packageFileName = $packageItem.Name
+    packageSize = $packageItem.Length
     sha256 = $sha256
-    signature = $Signature
     minIikoFrontVersion = $MinIikoFrontVersion
     minIikoFrontApiVersion = $MinIikoFrontApiVersion
+    supportedIikoFrontApiVersions = $SupportedIikoFrontApiVersions
     releaseNotesUrl = $ReleaseNotesUrl
-    publishedAt = (Get-Date -Format "dd-MM-yyyy")
+    publishedAt = (Get-Date).ToString("o")
 }
 
 $json = $manifest | ConvertTo-Json -Depth 5

@@ -10,6 +10,9 @@ Source: `https://documenter.getpostman.com/view/48749526/2sBXc8o3JF`
 - API key is required in request headers.
 - Requests for one cashbox must be sequential.
 - Use stable `ExternalCheckNumber` for idempotency.
+- Keep `ExternalCheckNumber` at 50 characters or fewer. The iikoFront adapter
+  hashes longer order/payment identifier combinations into a stable short id
+  before persisting them in `IOperationDataContext`.
 - Store every successful sale fiscal response before attempting later returns.
 
 ## Main Endpoints
@@ -22,7 +25,30 @@ Source: `https://documenter.getpostman.com/view/48749526/2sBXc8o3JF`
 - `POST /api-history/v4/Ticket/GetTicketByExternalCheckNumber`
 - `POST /api/v4/XReport`
 - `POST /api/v4/ZReport`
+- `POST /api/v4/MoneyOperation`
 - `POST /api/v4/references/RefUnits`
+
+## Cash Pay-In / Pay-Out
+
+Official `POST /api/v4/MoneyOperation` request fields are `Token`,
+`CashboxUniqueNumber`, `OperationType` (`0` pay-in, `1` pay-out), `Sum`, and
+mandatory `ExternalCheckNumber`. Webkassa explicitly documents the external
+number as the idempotency key for communication failures.
+
+The response `Data.Sum` is the resulting current cash balance. It is not an
+operation/document number. The adapter also consumes `ShiftNumber`,
+`OfflineMode`, `CashboxOfflineMode`, timestamps, and
+`Cashbox.RegistrationNumber`.
+
+If a retry of the same persisted money-operation id receives Webkassa code
+`14`, the operation is reconciled as already processed and is not sent with a
+new id. For fiscal checks, code `14` without valid fiscal `Data` still requires
+ticket/history recovery; it is not treated as a complete receipt response.
+
+The adapter additionally persists accepted MoneyOperation responses in a local
+atomic journal. This closes the sidecar-to-iiko response-loss window: once the
+sidecar has recorded acceptance, another request with the same id is answered
+locally rather than depending on a second Webkassa call.
 
 ## Ticket Print Format
 

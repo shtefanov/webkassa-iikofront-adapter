@@ -1,6 +1,6 @@
 # IikoChequeDraft Contract
 
-Date: 02-07-2026
+Updated: 14-07-2026
 
 ## Purpose
 
@@ -29,9 +29,9 @@ Position fields:
 - optional `code` / `productId`
 - optional `discount`
 - optional `markup`
+- `isTaxable`
 - optional `taxType`
 - optional `taxPercent`
-- optional `tax`
 - optional `sectionCode`
 - optional `unitCode`
 - optional `warehouseType`
@@ -50,11 +50,22 @@ NKT/WebNKT fields:
 When WebNKT support is enabled, the mapper forwards NTIN/XTIN/NKT code or GTIN
 to configured Webkassa position fields. See `docs/webnkt-support.md`.
 
+For an iiko taxable sale, `taxPercent` is required. Webkassa `TaxType=100` is
+used for VAT and included VAT is calculated from the rounded position total by
+`total * rate / (100 + rate)`, rounded to two decimals. Non-taxable positions
+use `TaxType=0`, `Tax=0`, and no tax percent.
+
+All iiko marking `Codes` are preserved as Webkassa `markList`; the first code is
+not used as a lossy substitute. iiko `GtinCode` is mapped to `nkt.gtin`.
+
 Payment fields:
 
 - `sum`
 - optional `paymentType`
 - optional `paymentId`
+
+Webkassa permits each payment type only once per check, so rows are aggregated
+by mapped Webkassa type (`0` cash, `1` bank card, `4` mobile payment).
 
 Customer fields are optional and default to `null`:
 
@@ -82,12 +93,14 @@ If original sale fiscal result is missing, do not send Webkassa return.
 
 ## ExternalCheckNumber
 
-Generated format:
+The fallback generated format is:
 
 - sale: `iiko-sale-<orderId>-<paymentId/orderNumber>`
 - return: `iiko-return-<orderId>-<refundId/paymentId/orderNumber>`
 
 If the readable value is too long, the mapper uses a bounded hash-based id.
+In the iikoFront adapter the selected id is stored through V9
+`IOperationDataContext` before the sidecar call, so retries reuse it.
 
 ## Current Code
 
@@ -96,9 +109,9 @@ If the readable value is too long, the mapper uses a bounded hash-based id.
 - `tests/fixtures/iiko/return-draft.json`
 - `tests/contract/webkassa-contract.test.js`
 
-## Next With Demo iikoFront
+## Required release regression
 
-When demo access is available, inspect real `ChequeTask` values for:
+Before publishing a corrected beta, verify real `ChequeTask` values for:
 
 - normal sale;
 - refund from original closed order;

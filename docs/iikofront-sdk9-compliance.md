@@ -1,7 +1,10 @@
 # iikoFront SDK 9 compliance
 
-Status: spike, validated through iikoFront plugin load, factory registration,
-device setup, and device `TEST`.
+Status: beta. The adapter has passed iikoFront plugin load, factory
+registration, device setup, device `TEST`, Windows build/install/recovery,
+and a fresh installed-sidecar sale/return/pay-in/pay-out/X/Z/print-format
+regression. The final `0.11.49-beta` also passed UI-originated sale, full
+cancellation, iiko total verification, and Webkassa receipt printing.
 
 The adapter targets the current stable iikoFront API line used by iikoRMS 9.5+:
 
@@ -23,6 +26,7 @@ The adapter targets the current stable iikoFront API line used by iikoRMS 9.5+:
 | Factory exposes stable unique `FactoryCode`, `Description`, and `DefaultDeviceSettings` | `WebkassaCashRegisterFactory` exposes these members and creates `WebkassaCashRegister`. |
 | Device implements required `ICashRegister` V9 methods | `WebkassaCashRegister` implements the full V9 interface and throws `DeviceException` for unsupported fiscal operations. |
 | `DoCheque` receives `ChequeTask`, `IViewManager`, `IOperationDataContext`, `IOperationService` | V9 signature is implemented and mapped into an internal `IikoChequeDraft`. |
+| A fiscal retry must reuse the same external operation id | `WebkassaCashRegister` stores the generated id through V9 `IOperationDataContext.GetCustomData/SetCustomData`; cancellation identity also prioritizes stable `OrderId + CancellingSaleNumber` because iikoFront can recreate `ChequeTask.Id` after restart. |
 | Device status methods are callable by iikoOffice/iikoFront equipment UI | `GetDeviceInfo`, `GetCashRegisterDriverParameters`, `GetCashRegisterStatus`, and `GetCashRegisterData` return structured results; iikoFront device `TEST` completed successfully on the Windows 9.5 VM. |
 | Unsupported operations fail in iiko device terms | Unsupported fiscal operations throw `DeviceException` with current device state. |
 | Plugin cleanup is explicit | `Plugin.Dispose()` unregisters the factory and logs unload. |
@@ -30,7 +34,8 @@ The adapter targets the current stable iikoFront API line used by iikoRMS 9.5+:
 
 ## Licensing boundary
 
-iiko plugin licensing is mandatory. Ivan provided interim `LicenseModuleId=21016318` for current development/demo preparation.
+iiko plugin licensing is mandatory. `LicenseModuleId=21016318` is currently
+marked `interim-assigned` for development/demo/pilot validation.
 
 Rules from the iiko documentation:
 
@@ -39,18 +44,39 @@ Rules from the iiko documentation:
 - If dev/stage/prod builds can coexist on one terminal, use different module ids.
 - The id in `Manifest.xml` must match the `[PluginLicenseModuleId(...)]` attribute on the plugin class.
 
-Current spike uses `ReleaseInfo.IikoLicenseModuleId = 21016318`. Before any wider distribution, confirm this id is officially assigned to this Webkassa adapter and covered by the target demo/developer license.
+Current beta uses `ReleaseInfo.IikoLicenseModuleId = 21016318`. Before stable
+or production distribution, confirm this id is officially assigned to this
+Webkassa adapter and covered by the target iikoFront production license.
 
-## Before demo-terminal load
+## Before terminal load
 
-1. Receive iiko demo access and developer/plugin license.
-2. Confirm `LicenseModuleId=21016318` is valid for the target demo/developer license.
+1. Receive iiko access and plugin license coverage for the target terminal.
+2. Confirm `LicenseModuleId=21016318` is valid for the target license, or
+   replace it with the final assigned id before stable.
 3. Confirm `[PluginLicenseModuleId(...)]` and `Manifest.xml` both contain `21016318`.
 4. Use `src/Resto.Front.Api.Webkassa.V9/Manifest.xml` for package load tests.
 5. Confirm package folder under `C:\Program Files\iiko\iikoRMS\Front.Net\Plugins`.
 6. Load only on demo/test iikoFront; do not install into production terminals.
 
 ## Open implementation gaps
+
+Corrections completed in source on 14-07-2026:
+
+- `ChequeSale.IsTaxable`, `Vat`, `GtinCode`, and all `Codes` are mapped to the
+  Webkassa tax/marking fields; payments are aggregated to one row per supported
+  Webkassa payment type;
+- pay-in/pay-out now uses Webkassa `/api/v4/MoneyOperation`; an uncertain cash
+  operation keeps a persisted stable id and blocks a different operation until
+  reconciliation; the sidecar also journals accepted results atomically and
+  serves accepted retries locally without a second Webkassa call;
+- sidecar calls use a per-installation DPAPI-protected bearer token and caller
+  runtime data cannot override the configured cashbox identity;
+- Windows compile, SYSTEM install, service recovery/restart, plugin reload,
+  direct installed-sidecar Webkassa regression, and active-session iikoFront
+  UI sale/full-cancellation/receipt-print regression passed on 14-07-2026.
+- iikoFront cumulative fiscal totals now increase by the absolute amount for
+  both sale and storno documents; return identity uses stable
+  `CancellingSaleNumber` before transient `ChequeTask.Id`.
 
 - Real Webkassa fiscalization inside `DoCheque` is wired in `0.11.0-beta` when
   `fiscalization.dryRunDoCheque=false` and `sidecar.enabled=true`. The older
@@ -80,9 +106,8 @@ Current spike uses `ReleaseInfo.IikoLicenseModuleId = 21016318`. Before any wide
 - iiko `CashRegisterResult` must continue to be reconciled with full Webkassa
   response data as the adapter moves from beta validation to production
   hardening.
-- `DoPayIn`, `DoPayOut`, `PrintText`, and `DirectIo` are intentionally
-  unsupported in this spike. `DoZReport` is a dry-run close-session diagnostic
-  in `0.10.5-spike`.
+- `PrintText` and `DirectIo` remain intentionally unsupported. `DoPayIn` and
+  `DoPayOut` use the live sidecar MoneyOperation path outside dry-run mode.
 - `LicenseModuleId=21016318` must be confirmed against the issued iiko demo/developer license before load.
 - Controlled `DoCheque` dry-run validation passed on the Windows VM:
   iikoFront closed order №6 with `Сахар стик` for `10,00 тг.`, called

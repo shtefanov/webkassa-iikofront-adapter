@@ -59,6 +59,7 @@ internal static class Program
         var apiKeyRef = $"{secretPrefix} api key";
         var loginRef = $"{secretPrefix} login";
         var passwordRef = $"{secretPrefix} password";
+        var sidecarTokenRef = $"{secretPrefix} sidecar authentication token";
 
         var apiKey = authMode == AdapterAuthOptions.LoginPasswordOnlyMode
             ? string.Empty
@@ -66,11 +67,15 @@ internal static class Program
         var login = PromptRequired("Webkassa login");
         var password = PromptSecret("Webkassa password");
 
-        var provider = new DpapiFileSecretProvider();
+        var provider = new DpapiFileSecretProvider(scope: DataProtectionScope.LocalMachine);
         if (authMode != AdapterAuthOptions.LoginPasswordOnlyMode)
             provider.ProtectToFile(apiKeyRef, apiKey, "api key");
         provider.ProtectToFile(loginRef, login, "login");
         provider.ProtectToFile(passwordRef, password, "password");
+        var sidecarTokenProvider = new DpapiFileSecretProvider(
+            DpapiFileSecretProvider.GetSidecarIpcSecretDirectory(),
+            DataProtectionScope.LocalMachine);
+        sidecarTokenProvider.ProtectToFile(sidecarTokenRef, GenerateSidecarToken(), "sidecar authentication token");
 
         var config = new AdapterConfiguration
         {
@@ -87,6 +92,10 @@ internal static class Program
             Auth = new AdapterAuthOptions
             {
                 Mode = authMode
+            },
+            Sidecar = new AdapterSidecarOptions
+            {
+                AuthTokenSecretRef = sidecarTokenRef
             },
             Logging =
             {
@@ -146,6 +155,13 @@ internal static class Program
                 provider.Resolve(config.SecretRefs.Login, "login"),
                 provider.Resolve(config.SecretRefs.Password, "password"),
             };
+        var sidecarTokenProvider = new DpapiFileSecretProvider(
+            DpapiFileSecretProvider.GetSidecarIpcSecretDirectory(),
+            GetDpapiScope(args));
+        checks = checks.Concat(new[]
+        {
+            sidecarTokenProvider.Resolve(config.Sidecar.AuthTokenSecretRef, "sidecar authentication token")
+        }).ToArray();
 
         if (checks.Any(check => !check.Success))
         {
@@ -267,6 +283,14 @@ internal static class Program
             provider.ProtectToFile(config.SecretRefs.ApiKey, apiKey!, "api key");
         provider.ProtectToFile(config.SecretRefs.Login, login, "login");
         provider.ProtectToFile(config.SecretRefs.Password, password, "password");
+        var sidecarToken = CleanSecret(Environment.GetEnvironmentVariable("WEBKASSA_SIDECAR_AUTH_TOKEN"));
+        var sidecarTokenProvider = new DpapiFileSecretProvider(
+            DpapiFileSecretProvider.GetSidecarIpcSecretDirectory(),
+            GetDpapiScope(args));
+        sidecarTokenProvider.ProtectToFile(
+            config.Sidecar.AuthTokenSecretRef,
+            string.IsNullOrWhiteSpace(sidecarToken) ? GenerateSidecarToken() : sidecarToken!,
+            "sidecar authentication token");
 
         Console.WriteLine("Protected secrets saved.");
         Console.WriteLine($"Protected secrets directory: {DpapiFileSecretProvider.GetDefaultSecretDirectory()}");
@@ -290,6 +314,14 @@ internal static class Program
         return string.Empty;
     }
 
+    private static string GenerateSidecarToken()
+    {
+        var bytes = new byte[32];
+        using (var random = RandomNumberGenerator.Create())
+            random.GetBytes(bytes);
+        return Convert.ToBase64String(bytes);
+    }
+
     private static string ResolveRequired(ISecretProvider provider, string secretRef, string purpose)
     {
         var result = provider.Resolve(secretRef, purpose);
@@ -310,9 +342,11 @@ internal static class Program
 
     private static DataProtectionScope GetDpapiScope(string[] args)
     {
-        return args.Contains("--machine-scope", StringComparer.OrdinalIgnoreCase)
-            ? DataProtectionScope.LocalMachine
-            : DataProtectionScope.CurrentUser;
+        if (args.Contains("--current-user-scope", StringComparer.OrdinalIgnoreCase))
+            return DataProtectionScope.CurrentUser;
+        if (args.Contains("--machine-scope", StringComparer.OrdinalIgnoreCase))
+            return DataProtectionScope.LocalMachine;
+        return DataProtectionScope.LocalMachine;
     }
 
     private static string ScopeName(DataProtectionScope scope)

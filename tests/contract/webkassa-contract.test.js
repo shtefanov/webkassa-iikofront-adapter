@@ -12,6 +12,7 @@ const {
 } = require('../../src/fiscal-errors');
 const { WEBKASSA_ERROR_CATALOG } = require('../../src/webkassa-error-catalog');
 const { FiscalResultStore } = require('../../src/fiscal-result-store');
+const { MoneyOperationStore } = require('../../src/money-operation-store');
 const { FiscalService } = require('../../src/fiscal-service');
 const { OfflineFiscalQueue } = require('../../src/offline-fiscal-queue');
 const {
@@ -113,6 +114,7 @@ function validateConfigExample() {
   const config = readJson('config/webkassa.config.example.json');
   assert.strictEqual(config.baseUrl.startsWith('https://'), true, 'baseUrl must use HTTPS');
   assert(Array.isArray(config.cashboxes) && config.cashboxes.length > 0, 'config must contain cashboxes');
+  assert(config.companyProfile, 'config companyProfile is required for storage isolation');
 
   const cashbox = config.cashboxes[0];
   assert(cashbox.cashboxUniqueNumber.startsWith('SWK'), 'cashbox number must start with SWK');
@@ -123,6 +125,11 @@ function validateConfigExample() {
   assert.strictEqual(config.logging.retentionDays, 30, 'Node sidecar log retention default must be documented');
   assert.strictEqual(config.licenseMonitoring.enabled, true, 'Node sidecar license monitoring must default to enabled');
   assert.strictEqual(config.licenseMonitoring.warningDays, 7, 'Node sidecar license warning threshold must default to seven days');
+  assert.strictEqual(config.storage.provider, 'json', 'Node sidecar storage must describe the implemented JSON store');
+  assert.strictEqual(config.storage.path, 'fiscal-results.json', 'Node sidecar storage path must stay inside its protected data directory');
+  assert.strictEqual(config.offline.enabled, false, 'Node sidecar local deferred queue must default to disabled');
+  assert.strictEqual(config.fiscalization.protocolVersion, '2.0.3');
+  assert.strictEqual(config.fiscalization.writeFiscalData, true);
 
   const adapterConfig = readJson('config/iikofront-adapter.config.example.json');
   assert.strictEqual(adapterConfig.baseUrl.startsWith('https://'), true, 'adapter baseUrl must use HTTPS');
@@ -136,9 +143,10 @@ function validateConfigExample() {
   assert.strictEqual(adapterConfig.printing.fallbackWindowsPrinterName, 'Microsoft Print to PDF', 'adapter must keep PDF fallback printer configurable');
   assert.strictEqual(adapterConfig.printing.paperKind, 0, 'adapter must default Webkassa Ticket/PrintFormat to 80mm');
   assert.strictEqual(adapterConfig.printing.acceptLanguage, 'ru-RU', 'adapter must request Russian as the second PrintFormat language by default');
-  assert.strictEqual(adapterConfig.offline.enabled, true, 'offline mode must be enabled');
+  assert.strictEqual(adapterConfig.offline.enabled, false, 'local deferred queue must be opt-in and must not impersonate Webkassa autonomous mode');
   assert.strictEqual(adapterConfig.offline.maxOfflineHours, 72, 'offline mode must be limited to 72 hours');
   assert.strictEqual(adapterConfig.offline.syncOnReconnect, true, 'offline mode must sync on reconnect');
+  assert.strictEqual(adapterConfig.requestPolicy.maxRetries, 0, 'blind fiscal network retries must stay disabled');
   assert.strictEqual(adapterConfig.webnkt.enabled, true, 'WebNKT support must be enabled');
   assert.strictEqual(adapterConfig.webnkt.fieldMap.nktCode, 'NTIN', 'WebNKT NKT code field must be configurable');
   assert.strictEqual(adapterConfig.webnkt.fieldMap.gtin, 'GTIN', 'WebNKT GTIN field must be configurable');
@@ -156,6 +164,7 @@ function validateConfigExample() {
   assert.strictEqual(adapterConfig.sidecar.enabled, true, 'sidecar must be enabled for adapter bridge');
   assert.strictEqual(adapterConfig.sidecar.baseUrl, 'http://127.0.0.1:17777', 'sidecar default must stay local-only');
   assert.strictEqual(adapterConfig.sidecar.healthPath, '/health', 'sidecar health path must be explicit');
+  assert(adapterConfig.sidecar.authTokenSecretRef, 'sidecar bearer token SecretRef must be explicit');
   assert.strictEqual(adapterConfig.logging.retentionDays, 30, 'adapter log retention default must be documented');
   assert.strictEqual(adapterConfig.licenseMonitoring.enabled, true, 'license monitoring must default to enabled');
   assert.strictEqual(adapterConfig.licenseMonitoring.warningDays, 7, 'license warning threshold must default to seven days');
@@ -192,6 +201,9 @@ function validateSmokeScripts() {
   const sidecarServiceSource = fs.readFileSync(path.join(root, 'scripts', 'run-sidecar-service.sh'), 'utf8');
   assert(sidecarServiceSource.includes('--secret-source bitwarden'), 'sidecar service runner must use Bitwarden SecretRefs');
   assert(sidecarServiceSource.includes('BW_SESSION'), 'sidecar service runner must unlock Bitwarden at runtime');
+  assert(sidecarServiceSource.includes('WEBKASSA_SIDECAR_AUTH_TOKEN'), 'sidecar service runner must require a runtime IPC bearer token');
+  assert(sidecarServiceSource.includes('127.0.0.1'), 'sidecar service runner must default to loopback');
+  assert(!sidecarServiceSource.includes('192.168.10.'), 'sidecar service runner must not expose the sidecar on the private LAN');
   assert(!sidecarServiceSource.includes('WEBKASSA_API_KEY='), 'sidecar service runner must not store raw API key env values');
 
   const windowsServiceSource = fs.readFileSync(path.join(root, 'tools', 'Webkassa.Sidecar.WindowsService', 'Program.cs'), 'utf8');
@@ -219,13 +231,25 @@ function validateSmokeScripts() {
   assert(terminalInstaller.includes('New-Service'), 'terminal installer must register the local Windows sidecar service');
   assert(terminalInstaller.includes('127.0.0.1'), 'terminal installer must keep the sidecar local-only by default');
   assert(terminalInstaller.includes('icacls'), 'terminal installer must set target iikoFront user ACLs');
+  assert(terminalInstaller.includes('sc.exe failure $ServiceName'), 'terminal installer must configure sidecar service recovery actions');
+  assert(terminalInstaller.includes('sc.exe failureflag $ServiceName 1'), 'terminal installer must recover from wrapper-initiated exits');
+  assert(terminalInstaller.includes('SetAccessRuleProtection($true, $false)'), 'protected directories must replace inherited ACLs');
+  assert(terminalInstaller.includes('Protect-PluginWritableDirectory'), 'plugin-writable directories must allow only SYSTEM, Administrators, and the iikoFront user');
+  assert(terminalInstaller.includes('Grant-Read -Path $configDir'), 'iikoFront must receive read-only config access');
+  assert(terminalInstaller.includes('Grant-Read -Path $logsDir'), 'iikoFront must receive read-only sidecar log access');
   assert(terminalInstaller.includes('nkt-store'), 'terminal installer must create ACLs for the indexed NKT catalog store');
   assert(!terminalInstaller.includes('WEBKASSA_API_KEY='), 'terminal installer must not write raw Webkassa secrets');
 
   const updaterSource = fs.readFileSync(path.join(root, 'scripts', 'update-iikofront-terminal.ps1'), 'utf8');
-  assert(updaterSource.includes('ManifestUrl must use HTTPS'), 'updater must require HTTPS manifests');
-  assert(updaterSource.includes('packageUrl must use HTTPS'), 'updater must require HTTPS packages');
+  assert(updaterSource.includes('Assert-TrustedHttpsUri'), 'updater must require trusted HTTPS manifests and packages');
+  assert(updaterSource.includes('TrustedDownloadHosts'), 'updater must enforce a download host allowlist');
   assert(updaterSource.includes('Assert-Sha256'), 'updater must verify package SHA256');
+  assert(updaterSource.includes('Assert-PackageSize'), 'updater must verify package size');
+  assert(updaterSource.includes('Parse-SemVer'), 'updater must parse prerelease identifiers for anti-downgrade checks');
+  assert(updaterSource.includes('Stable channel cannot install a prerelease version'), 'stable updater channel must reject prerelease versions');
+  assert(updaterSource.includes('explicit offset'), 'updater must require an explicit RFC3339 timestamp offset');
+  assert(updaterSource.includes('unsafe ZIP path'), 'updater must reject ZIP traversal');
+  assert(updaterSource.includes('unsafe ZIP entry name'), 'updater must reject rooted paths and Windows alternate data streams');
   assert(updaterSource.includes('install-iikofront-terminal.ps1'), 'updater must delegate installation to the terminal installer');
   assert(updaterSource.includes('@installerParameters'), 'updater must call the terminal installer with named parameters');
   assert(updaterSource.includes('iikoFront is running'), 'updater must refuse unsafe replacement while iikoFront is running');
@@ -273,8 +297,9 @@ function validateSmokeScripts() {
   assert(dpapiSource.includes('File.Move(tempPath, path)'), 'DPAPI provider must write protected secrets through a temporary file');
 
   const settingsDialogSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'WebkassaSettingsDialog.cs'), 'utf8');
-  assert(settingsDialogSource.includes('nationalCatalogApiKey.Text = ResolveSecretBestEffort'), 'National Catalog API key must be restored into the masked settings field');
-  assert(settingsDialogSource.includes('nationalCatalogPassword.Text = ResolveSecretBestEffort'), 'National Catalog password must be restored into the masked settings field');
+  assert(settingsDialogSource.includes('nationalCatalogApiKey.Text = string.Empty'), 'National Catalog API key must not be restored into UI memory');
+  assert(settingsDialogSource.includes('nationalCatalogPassword.Text = string.Empty'), 'National Catalog password must not be restored into UI memory');
+  assert(settingsDialogSource.includes('login.Text = string.Empty'), 'Webkassa login must not be restored into UI memory');
   assert(settingsDialogSource.includes('SecretRefForSave('), 'settings save must rotate SecretRefs when a secret value is entered');
   assert(settingsDialogSource.includes('Guid.NewGuid()'), 'settings save must avoid overwriting stale protected secret files');
 }
@@ -282,14 +307,30 @@ function validateSmokeScripts() {
 function validateReleaseAndUpdaterDocs() {
   const betaManifest = readJson('config/update-manifest.beta.example.json');
   const stableManifest = readJson('config/update-manifest.stable.example.json');
+  assert.strictEqual(betaManifest.schemaVersion, 1);
+  assert.strictEqual(stableManifest.schemaVersion, 1);
+  assert.strictEqual(betaManifest.project, 'webkassa');
+  assert.strictEqual(stableManifest.project, 'webkassa');
   assert.strictEqual(betaManifest.channel, 'beta');
   assert.strictEqual(stableManifest.channel, 'stable');
   assert(betaManifest.packageUrl.startsWith('https://'), 'beta update manifest must use HTTPS packageUrl');
   assert(stableManifest.packageUrl.startsWith('https://'), 'stable update manifest must use HTTPS packageUrl');
+  assert(betaManifest.packageFileName.endsWith('.zip'), 'beta update manifest must include package file name');
+  assert(stableManifest.packageFileName.endsWith('.zip'), 'stable update manifest must include package file name');
+  assert(Number.isInteger(betaManifest.packageSize) && betaManifest.packageSize > 0, 'beta update manifest must include package size');
+  assert(Number.isInteger(stableManifest.packageSize) && stableManifest.packageSize > 0, 'stable update manifest must include package size');
+  assert.match(betaManifest.sha256, /^[0-9a-f]{64}$/, 'beta update manifest must contain a structurally valid SHA256 placeholder');
+  assert.match(stableManifest.sha256, /^[0-9a-f]{64}$/, 'stable update manifest must contain a structurally valid SHA256 placeholder');
   assert(betaManifest.releaseNotesUrl.startsWith('https://'), 'beta update manifest must use HTTPS release notes URL');
   assert(stableManifest.releaseNotesUrl.startsWith('https://'), 'stable update manifest must use HTTPS release notes URL');
   assert.strictEqual(betaManifest.minIikoFrontApiVersion, 'V9');
   assert.strictEqual(stableManifest.minIikoFrontApiVersion, 'V9');
+  assert.deepStrictEqual(betaManifest.supportedIikoFrontApiVersions, ['V9']);
+  assert.deepStrictEqual(stableManifest.supportedIikoFrontApiVersions, ['V9']);
+  assert.match(betaManifest.publishedAt, /^\d{4}-\d{2}-\d{2}T.+[+-]\d{2}:\d{2}$/);
+  assert.match(stableManifest.publishedAt, /^\d{4}-\d{2}-\d{2}T.+[+-]\d{2}:\d{2}$/);
+  assert(!Object.prototype.hasOwnProperty.call(betaManifest, 'signature'), 'beta manifest must not publish empty signature');
+  assert(!Object.prototype.hasOwnProperty.call(stableManifest, 'signature'), 'stable manifest must not publish empty signature');
   assert(!JSON.stringify(betaManifest).includes('WKD-'), 'beta update manifest example must not include raw API keys');
   assert(!JSON.stringify(stableManifest).includes('WKD-'), 'stable update manifest example must not include raw API keys');
 
@@ -298,12 +339,23 @@ function validateReleaseAndUpdaterDocs() {
   assert(updaterDoc.includes('stable.json'), 'updater docs must document stable manifest URL');
   assert(updaterDoc.includes('-DryRun'), 'updater docs must document dry-run validation');
   assert(updaterDoc.includes('SHA256'), 'updater docs must document checksum verification');
+  assert(updaterDoc.includes('RFC3339'), 'updater docs must document RFC3339 publishedAt');
+  assert(updaterDoc.includes('current updater requires'), 'updater docs must distinguish active updater validation from metadata');
 
   const githubReleaseDoc = fs.readFileSync(path.join(root, 'docs', 'github-releases.md'), 'utf8');
   assert(githubReleaseDoc.includes('released to `beta` first'), 'GitHub release docs must require beta first');
   assert(githubReleaseDoc.includes('Promotion to `stable`'), 'GitHub release docs must document stable promotion');
   assert(githubReleaseDoc.includes('known issues'), 'GitHub release notes must include known issues');
   assert(githubReleaseDoc.includes('rollback notes'), 'GitHub release notes must include rollback notes');
+
+  const knownIssuesDoc = fs.readFileSync(path.join(root, 'docs', 'release-known-issues.md'), 'utf8');
+  const version = fs.readFileSync(path.join(root, 'VERSION'), 'utf8').trim();
+  assert(knownIssuesDoc.includes(`## ${version}`), 'known issues must be tracked per release');
+  assert(knownIssuesDoc.includes('loginPasswordOnly'), 'known issues must record auth compatibility risk');
+
+  const projectPageDoc = fs.readFileSync(path.join(root, 'docs', 'project-page-webkassa.md'), 'utf8');
+  assert(projectPageDoc.includes('Windows 11 Pro x64'), 'project page facts must record confirmed Windows runtime');
+  assert(projectPageDoc.includes('Proprietary software'), 'project page facts must record public license wording');
 
   const releaseConfig = fs.readFileSync(path.join(root, '.github', 'release.yml'), 'utf8');
   assert(releaseConfig.includes('Release and updater'), 'GitHub release config must categorize release/updater changes');
@@ -555,8 +607,9 @@ function validateIikoFrontSdk9Compliance() {
   assert(cashRegisterSource.includes('ICashRegister'), 'cash register must implement ICashRegister');
   assert(cashRegisterSource.includes('DoCheque('), 'cash register must implement DoCheque');
   assert(cashRegisterSource.includes('IOperationDataContext context'), 'DoCheque must use SDK 9 signature');
-  assert(cashRegisterSource.includes('FiscalizeSale(draft)'), 'DoCheque must call sidecar sale fiscalization when dry-run is disabled');
-  assert(cashRegisterSource.includes('FiscalizeReturn(draft'), 'DoCheque must call sidecar return fiscalization when dry-run is disabled');
+  assert(cashRegisterSource.includes('FiscalizeSale(draft, externalCheckNumber)'), 'DoCheque must call sidecar sale fiscalization with stable operation id');
+  assert(cashRegisterSource.includes('FiscalizeReturn(draft, externalCheckNumber'), 'DoCheque must call sidecar return fiscalization with stable operation id');
+  assert(cashRegisterSource.includes('context?.SetCustomData(prefix + externalCheckNumber)'), 'DoCheque must persist ExternalCheckNumber in iiko operation context');
   assert(cashRegisterSource.includes('RestorePersistentStateBestEffort'), 'cash register must restore persistent state at startup');
   assert(cashRegisterSource.includes('SavePersistentStateBestEffort'), 'cash register must save persistent state after fiscal state changes');
   assert(cashRegisterSource.includes('cash-register-{DeviceId}.xml'), 'cash register state file must be device-scoped');
@@ -564,20 +617,30 @@ function validateIikoFrontSdk9Compliance() {
   assert(cashRegisterSource.includes('GetCashRegisterDriverParameters()'), 'cash register must expose driver parameters');
   assert(cashRegisterSource.includes('GetCashRegisterStatus('), 'cash register must expose status polling');
   assert(cashRegisterSource.includes('RestaurantMode = false'), 'cash register must report fiscal, not restaurant, mode');
-  assert(cashRegisterSource.includes('CashRegisterTotalsSign'), 'cash register result totals must choose deltas from iiko cheque task flags');
+  assert(cashRegisterSource.includes('cashSum += cashPayment'), 'cash register cash total must accumulate the absolute amount of every fiscal document');
+  assert(cashRegisterSource.includes('totalIncomeSum += Math.Abs(draft.ResultSum)'), 'cash register income total must accumulate absolute fiscal turnover');
   assert(cashRegisterSource.includes('result.QueuedOffline'), 'cash register must handle offline queued fiscalization results');
   assert(cashRegisterSource.includes('PrintOfflineQueuedNotice'), 'cash register must print non-fiscal queued notice when offline auto-print is requested');
   assert(cashRegisterSource.includes('TryAutoPrintFiscalReceipt'), 'cash register must support optional auto-print after fiscalization');
   assert(cashRegisterSource.includes('TryPrintReport'), 'X/Z reports must be printed after Webkassa accepts them');
   assert(cashRegisterSource.includes('WebkassaPrintRequests.Consume'), 'auto-print request must be consumed per order after successful fiscalization');
   assert(cashRegisterSource.includes('ResolveMoneyTaskAmount'), 'pay-in/pay-out must parse iiko money task amounts without failing close shift');
-  assert(cashRegisterSource.includes('Webkassa local pay-out accepted'), 'pay-out must be accepted locally so iikoFront close-shift can continue');
+  assert(cashRegisterSource.includes('RunMoneyOperation(operationType, amount'), 'pay-in/pay-out must call official Webkassa MoneyOperation');
+  assert(cashRegisterSource.includes('pendingMoneyOperationExternalCheckNumber'), 'money operations must persist an idempotency key across uncertain results');
+  assert(cashRegisterSource.includes('File.Replace(tempPath, path, null)'), 'cash-register state must be replaced atomically');
   assert(!cashRegisterSource.includes('throw NotImplemented("Pay-out is not implemented in the spike.")'), 'pay-out must not block iikoFront close-shift');
   assert(!cashRegisterSource.includes('throw NotImplemented("Pay-in is not implemented in the spike.")'), 'pay-in must not block cash management flows');
-  assert(cashRegisterSource.includes('chequeTask.IsRefund || chequeTask.IsProductRefund || chequeTask.IsCancellation || chequeTask.CancellingSaleNumber > 0'), 'storno/refund/cancellation returns must produce negative cash deltas for iiko validation');
+  assert(!cashRegisterSource.includes('CashRegisterTotalsSign'), 'storno/refund/cancellation must not expose negative cumulative totals to iiko IncomeSumVerifier');
   assert(cashRegisterSource.includes('IsProductRefund={chequeTask.IsProductRefund}'), 'DoCheque must log return task flags for diagnostics');
   assert(cashRegisterSource.includes('IsBuyChequeSupported = true'), 'cash register must advertise return/buy-cheque support because DoCheque handles refunds through sidecar returns');
   assert(cashRegisterSource.includes('IsCancellationSupported = true'), 'cash register must advertise cancellation support because DoCheque handles cancellation return drafts');
+
+  const chequeTaskMapperSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'ChequeTaskDraftMapper.cs'), 'utf8');
+  const refundIdBuilder = chequeTaskMapperSource.slice(
+    chequeTaskMapperSource.indexOf('private static string? BuildRefundId'),
+    chequeTaskMapperSource.indexOf('private static string FirstNonEmpty')
+  );
+  assert(refundIdBuilder.indexOf('task.CancellingSaleNumber > 0') < refundIdBuilder.indexOf('task.Id.HasValue'), 'return idempotency must prefer stable CancellingSaleNumber over transient ChequeTask.Id');
   assert(cashRegisterSource.includes('IsShiftAlreadyClosedError'), 'Z-report must reconcile an already-closed Webkassa shift');
   assert(cashRegisterSource.includes('SafeLogMessage'), 'sidecar JSON errors must be escaped before iiko logger formatting');
   assert(cashRegisterSource.includes('SafeDeviceMessage'), 'sidecar JSON errors must be sanitized before DeviceException messages');
@@ -761,6 +824,22 @@ function validateNormalizers() {
   assert.strictEqual(historyArray.rows[0].cashboxUniqueNumber, 'SWK00035753');
   assert.strictEqual(historyArray.rows[0].cashboxRegistrationNumber, '943317789864');
 
+  const currentProtocolRow = normalizeTicketLookupResponse({
+    Data: {
+      ExternalCheckNumber: 'current-contract-1',
+      Number: 998877,
+      OrderNumber: 42,
+      RegistratedOn: '14.07.2026 10:00:00',
+      RegistratedOnUTC: '14.07.2026 05:00:00',
+      ShiftNumber: 7,
+      RegistrationNumber: 'RN-1',
+      Total: 1250,
+    },
+  });
+  assert.strictEqual(currentProtocolRow.checkNumber, '998877');
+  assert.strictEqual(currentProtocolRow.checkOrderNumber, 42);
+  assert.strictEqual(currentProtocolRow.dateTime, '14.07.2026 10:00:00');
+
   const printFormat = normalizeTicketPrintFormatResponse({
     body: {
       Data: {
@@ -882,6 +961,37 @@ function validateIikoChequeMapper() {
   assert.strictEqual(sumPositions(salePayload.Positions), 100);
   assert.strictEqual(sumPayments(salePayload.Payments), 100);
   assert.strictEqual(salePayload.CustomerEmail, null);
+  assert.strictEqual(salePayload.Change, null, 'unknown change must be delegated to Webkassa');
+
+  const taxableDraft = {
+    ...saleDraft,
+    positions: [{
+      ...saleDraft.positions[0],
+      isTaxable: true,
+      taxPercent: 16,
+      markList: ['MARK-1', 'MARK-2'],
+    }],
+    payments: [
+      { paymentType: 'cash', sum: 40 },
+      { paymentType: 'cash', sum: 60 },
+    ],
+  };
+  const taxableOptions = { ...options, unitCode: 166, roundType: 0, defaultUnitCode: undefined, defaultRoundType: undefined };
+  const taxablePayload = mapIikoSaleDraftToWebkassaPayload(taxableDraft, taxableOptions);
+  assert.strictEqual(taxablePayload.Positions[0].TaxPercent, 16);
+  assert.strictEqual(taxablePayload.Positions[0].TaxType, 100);
+  assert.strictEqual(taxablePayload.Positions[0].Tax, 13.79);
+  assert.deepStrictEqual(taxablePayload.Positions[0].markList, ['MARK-1', 'MARK-2']);
+  assert.strictEqual(taxablePayload.Positions[0].UnitCode, 796, 'position-specific unit code must take precedence');
+  assert.strictEqual(taxablePayload.RoundType, 0);
+  assert.deepStrictEqual(taxablePayload.Payments, [{ PaymentType: 0, Sum: 100 }]);
+  assert.throws(
+    () => mapIikoSaleDraftToWebkassaPayload({
+      ...taxableDraft,
+      positions: [{ ...taxableDraft.positions[0], taxPercent: null }],
+    }, taxableOptions),
+    /taxPercent is required when isTaxable is true/,
+  );
 
   const cashStringPayload = mapIikoSaleDraftToWebkassaPayload({
     ...saleDraft,
@@ -925,7 +1035,14 @@ function validateIikoChequeMapper() {
     orderId: 'order-with-a-very-long-identifier-that-must-be-hashed-for-webkassa-external-check-number',
     paymentId: 'payment-with-a-very-long-identifier-that-must-be-hashed-for-webkassa-external-check-number',
   };
-  assert(buildExternalCheckNumber(longDraft, 'sale').length <= 64, 'external check number must be bounded');
+  assert(buildExternalCheckNumber(longDraft, 'sale').length <= 50, 'external check number must match the Webkassa 50-character limit');
+  assert.throws(
+    () => mapIikoSaleDraftToWebkassaPayload(saleDraft, {
+      ...options,
+      externalCheckNumber: 'x'.repeat(51),
+    }),
+    /must not exceed 50 characters/,
+  );
 
   const invalidDraft = {
     ...saleDraft,
@@ -1074,6 +1191,15 @@ function validateSupportBundle() {
     },
     diagnostics: [diagnostic],
     fiscalState: state,
+    offlineQueueState: {
+      items: [{
+        status: 'pending',
+        operation: 'sale',
+        externalCheckNumber: 'queued-sale-1',
+        payload: { Token: 'must-not-appear' },
+        lastError: 'Bearer secret.queue.token',
+      }],
+    },
   });
 
   assert.strictEqual(bundle.fiscalRecords.length, 1);
@@ -1084,10 +1210,17 @@ function validateSupportBundle() {
   assert.strictEqual(bundle.webnktDiagnostics[0].positions[1].hasAnyIdentifier, false);
   assert.strictEqual(bundle.configSummary.apiKey, '__REDACTED__');
   assert.strictEqual(bundle.configSummary.cashboxes[0].apiKeySecretRef, 'Webkassa test API key - SWK00035753');
+  assert.strictEqual(bundle.offlineQueue.length, 1);
+  assert.strictEqual(bundle.offlineQueue[0].externalCheckNumber, 'queued-sale-1');
+  assert(!Object.prototype.hasOwnProperty.call(bundle.offlineQueue[0], 'payload'), 'support bundle must not include deferred fiscal payloads');
+  assert(!bundle.offlineQueue[0].lastError.includes('secret.queue.token'), 'offline queue errors must be redacted');
 
   const outPath = path.join(tempDir, 'support-bundle.json');
   writeSupportBundle(outPath, bundle);
   const text = fs.readFileSync(outPath, 'utf8');
+  if (process.platform !== 'win32') {
+    assert.strictEqual(fs.statSync(outPath).mode & 0o777, 0o600, 'support bundle file must be owner-only');
+  }
   assert(!text.includes('WKD-SECRET-123'), 'support bundle must redact API keys');
   assert(!text.includes('super-secret'), 'support bundle must redact passwords');
   assert(!text.includes('abc.def'), 'support bundle must redact bearer tokens');
@@ -1227,9 +1360,9 @@ async function validateFiscalService() {
   const retryReturn = await service.fiscalizeReturnDraft(retryReturnDraft, {
     originalSaleExternalCheckNumber: sale.record.externalCheckNumber,
   });
-  assert.strictEqual(retryReturn.status, 'already_fiscalized');
-  assert.strictEqual(retryReturn.record.externalCheckNumber, saleReturn.record.externalCheckNumber);
-  assert.strictEqual(calls.length, 2, 'return retry with a changed iiko refund id must not call Webkassa again');
+  assert.strictEqual(retryReturn.status, 'fiscalized');
+  assert.notStrictEqual(retryReturn.record.externalCheckNumber, saleReturn.record.externalCheckNumber);
+  assert.strictEqual(calls.length, 3, 'a distinct refund id must never be collapsed only because order and amount match');
 
   fs.rmSync(tempDir, { recursive: true, force: true });
 }
@@ -1496,7 +1629,7 @@ async function validateFiscalServiceLostResponseRecoveryWithoutKnownShift() {
   assert.strictEqual(sale.status, 'recovered');
   assert.strictEqual(sale.record.fiscal.shiftNumber, 1);
   assert.strictEqual(shiftHistoryCount, 1);
-  assert.strictEqual(checkHistoryCount, 2);
+  assert.strictEqual(checkHistoryCount, 1, 'latest shift must be searched first');
   assert.strictEqual(lookupCount, 1);
 
   fs.rmSync(tempDir, { recursive: true, force: true });
@@ -1554,6 +1687,65 @@ async function validateWebkassaClient() {
   assert.strictEqual(result.fiscal.checkNumber, '1779616679908');
   assert.strictEqual(calls[0].url, 'https://devkkm.webkassa.kz/api/v4/check');
   assert.strictEqual(calls[0].options.headers['x-api-key'], 'test-api-key');
+  assert(calls[0].options.signal, 'Webkassa requests must have an abort signal');
+  await client.moneyOperation('__TOKEN__', 'SWK00035753', 0, 250, 'money-operation-1');
+  const moneyBody = JSON.parse(calls[1].options.body);
+  assert.deepStrictEqual(moneyBody, {
+    Token: '__TOKEN__',
+    CashboxUniqueNumber: 'SWK00035753',
+    OperationType: 0,
+    Sum: 250,
+    ExternalCheckNumber: 'money-operation-1',
+  });
+  await client.shiftHistory('__TOKEN__', 'SWK00035753', { skip: -10, take: 500 });
+  const shiftHistoryBody = JSON.parse(calls[2].options.body);
+  assert.strictEqual(shiftHistoryBody.Skip, 0);
+  assert.strictEqual(shiftHistoryBody.Take, 50, 'Webkassa history page size must not exceed the documented limit');
+
+  const duplicateClient = new WebkassaClient({
+    baseUrl: 'https://devkkm.webkassa.kz',
+    fetchImpl: async () => ({
+      status: 200,
+      ok: true,
+      text: async () => JSON.stringify({
+        ...saleResponse,
+        Errors: [{ Code: 14, Text: 'duplicate ExternalCheckNumber' }],
+      }),
+    }),
+  });
+  const duplicateResult = await duplicateClient.check({ Token: 'redacted', CashboxUniqueNumber: 'SWK00035753' });
+  assert.strictEqual(duplicateResult.fiscal.checkNumber, '1779616679908', 'Code 14 with Data must reconcile as idempotent success');
+
+  const mixedErrorClient = new WebkassaClient({
+    baseUrl: 'https://devkkm.webkassa.kz',
+    fetchImpl: async () => ({
+      status: 200,
+      ok: true,
+      text: async () => JSON.stringify({
+        ...saleResponse,
+        Errors: [
+          { Code: 14, Text: 'duplicate ExternalCheckNumber' },
+          { Code: 9, Text: 'validation failed' },
+        ],
+      }),
+    }),
+  });
+  await assert.rejects(
+    () => mixedErrorClient.check({ Token: 'redacted', CashboxUniqueNumber: 'SWK00035753' }),
+    (error) => error instanceof WebkassaApiError && error.webkassaCode === '14',
+    'Code 14 must not hide a second Webkassa error',
+  );
+
+  const duplicateMoneyClient = new WebkassaClient({
+    baseUrl: 'https://devkkm.webkassa.kz',
+    fetchImpl: async () => ({
+      status: 200,
+      ok: true,
+      text: async () => JSON.stringify({ Errors: [{ Code: 14, Text: 'already processed' }] }),
+    }),
+  });
+  const duplicateMoney = await duplicateMoneyClient.moneyOperation('__TOKEN__', 'SWK00035753', 0, 250, 'money-operation-1');
+  assert.strictEqual(duplicateMoney.duplicate, true, 'MoneyOperation Code 14 must reconcile the persisted pending operation');
 
   const loginOnlyCalls = [];
   const loginOnlyClient = new WebkassaClient({
@@ -1593,6 +1785,55 @@ async function validateWebkassaClient() {
   assert.strictEqual(printCalls[0].options.headers['Accept-Language'], 'ru-RU');
 }
 
+async function validateFiscalServiceMoneyOperation() {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'webkassa-money-operation-'));
+  let calls = 0;
+  const service = new FiscalService({
+    client: {
+      moneyOperation: async (token, cashboxUniqueNumber, operationType, sum, externalCheckNumber) => {
+        calls++;
+        return ({
+        status: 200,
+        body: {
+          Data: {
+            OfflineMode: false,
+            CashboxOfflineMode: false,
+            ShiftNumber: 2,
+            DateTime: '16.01.2026 09:21:47',
+            DateTimeUTC: '16.01.2026 09:21:47 +05:00',
+            Sum: 117520,
+            Cashbox: { RegistrationNumber: '852873427095' },
+          },
+        },
+        requestEcho: { token, cashboxUniqueNumber, operationType, sum, externalCheckNumber },
+        });
+      },
+    },
+    store: new FiscalResultStore(path.join(tempDir, 'fiscal-results.json')),
+    moneyOperationStore: new MoneyOperationStore(path.join(tempDir, 'money-operations.json')),
+    environment: 'dev',
+    companyId: 'test-company',
+    cashboxUniqueNumber: 'SWK00035753',
+    mappingDefaults: { token: '__TOKEN__' },
+  });
+
+  const result = await service.runMoneyOperation(0, 250, 'money-operation-contract-1');
+  assert.strictEqual(result.sum, 250);
+  assert.strictEqual(result.cashBalance, 117520, 'MoneyOperation Data.Sum is the resulting cash balance');
+  assert.strictEqual(result.cashboxRegistrationNumber, '852873427095');
+  assert.strictEqual(result.shiftNumber, 2);
+  assert.strictEqual(result.offlineMode, false);
+  assert.strictEqual(result.reconciledDuplicate, false);
+  const duplicate = await service.runMoneyOperation(0, 250, 'money-operation-contract-1');
+  assert.strictEqual(calls, 1, 'accepted MoneyOperation must be served from the durable journal on retry');
+  assert.strictEqual(duplicate.reconciledDuplicate, true);
+  await assert.rejects(
+    () => service.runMoneyOperation(1, 250, 'money-operation-contract-1'),
+    /different type or amount/,
+  );
+  fs.rmSync(tempDir, { recursive: true, force: true });
+}
+
 function validateOfflineFiscalQueue() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'webkassa-offline-queue-'));
   const queue = new OfflineFiscalQueue(path.join(tempDir, 'offline-queue.json'));
@@ -1614,6 +1855,52 @@ function validateOfflineFiscalQueue() {
   assert.strictEqual(queue.listPending(new Date('2026-07-05T10:00:01.000Z')).length, 0);
   assert.strictEqual(queue.getStats().expired, 1);
 
+  const shorterQueue = new OfflineFiscalQueue(path.join(tempDir, 'offline-queue-short.json'), { maxOfflineHours: 24 });
+  const shorterItem = shorterQueue.enqueue({
+    operation: 'sale',
+    environment: 'dev',
+    companyId: 'test-company',
+    cashboxUniqueNumber: 'SWK00035753',
+    externalCheckNumber: 'offline-sale-short',
+    iiko: { orderId: 'order-offline-short' },
+    payload: { ExternalCheckNumber: 'offline-sale-short' },
+  }, createdAt);
+  assert.strictEqual(shorterItem.expiresAt, '2026-07-03T10:00:00.000Z');
+  assert.throws(
+    () => new OfflineFiscalQueue(path.join(tempDir, 'invalid.json'), { maxOfflineHours: 73 }),
+    /between 1 and 72/,
+  );
+
+  const stalePath = path.join(tempDir, 'stale-lock-queue.json');
+  fs.writeFileSync(`${stalePath}.lock`, '');
+  const oldTime = new Date(Date.now() - 10 * 60 * 1000);
+  fs.utimesSync(`${stalePath}.lock`, oldTime, oldTime);
+  const recoveredQueue = new OfflineFiscalQueue(stalePath);
+  assert.doesNotThrow(() => recoveredQueue.enqueue({
+    operation: 'sale',
+    environment: 'dev',
+    companyId: 'test-company',
+    cashboxUniqueNumber: 'SWK00035753',
+    externalCheckNumber: 'stale-lock-recovery',
+    iiko: { orderId: 'stale-lock-order' },
+    payload: { ExternalCheckNumber: 'stale-lock-recovery' },
+  }, createdAt));
+
+  const activePath = path.join(tempDir, 'active-lock-queue.json');
+  fs.writeFileSync(`${activePath}.lock`, `${JSON.stringify({ pid: process.pid })}\n`);
+  assert.throws(
+    () => new OfflineFiscalQueue(activePath).enqueue({
+      operation: 'sale',
+      environment: 'dev',
+      companyId: 'test-company',
+      cashboxUniqueNumber: 'SWK00035753',
+      externalCheckNumber: 'active-lock',
+      iiko: { orderId: 'active-lock-order' },
+      payload: { ExternalCheckNumber: 'active-lock' },
+    }, createdAt),
+    /locked by another sidecar process/,
+  );
+
   fs.rmSync(tempDir, { recursive: true, force: true });
 }
 
@@ -1634,6 +1921,10 @@ async function validateFiscalServiceOfflineQueueSync() {
           fiscal: normalizeCheckResponse(saleResponse),
         };
       },
+      shiftHistory: async () => {
+        throw new Error('fetch failed during recovery lookup');
+      },
+      checkHistory: async () => ({ history: { total: 0, rows: [] } }),
     },
     store,
     offlineQueue,
@@ -1749,6 +2040,12 @@ async function validateSidecarServer() {
       offlineAutonomousHours: 72,
       webNktSupported: true,
     },
+    supportBundleOptions: () => ({
+      version: 'trusted-version',
+      environment: 'dev',
+      companyId: 'configured-company',
+      cashboxUniqueNumber: 'SWK00035753',
+    }),
     fiscalService: {
       fiscalizeSaleDraft: async (draft, runtime) => {
         calls.push({ operation: 'sale', draft, runtime });
@@ -1854,6 +2151,20 @@ async function validateSidecarServer() {
           },
         };
       },
+      runMoneyOperation: async (operationType, sum, externalCheckNumber, runtime) => {
+        calls.push({ operation: 'money-operation', operationType, sum, externalCheckNumber, runtime });
+        return {
+          status: 'accepted',
+          operationType,
+          sum,
+          externalCheckNumber,
+          shiftNumber: 3,
+          cashBalance: 250,
+          offlineMode: false,
+          cashboxOfflineMode: false,
+          cashboxRegistrationNumber: '943317789864',
+        };
+      },
       getOfflineQueueStats: () => ({
         configured: true,
         schemaVersion: 1,
@@ -1907,6 +2218,15 @@ async function validateSidecarServer() {
     assert.strictEqual(status.webNktSupported, true);
     assert.strictEqual(status.fiscalServiceConfigured, true);
 
+    const supportBundle = await httpJson(`${baseUrl}/support-bundle`, {
+      version: 'caller-controlled-version',
+      companyId: 'caller-controlled-company',
+      notes: ['operator note'],
+    });
+    assert.strictEqual(supportBundle.project.version, 'trusted-version');
+    assert.strictEqual(supportBundle.project.companyId, 'configured-company');
+    assert.deepStrictEqual(supportBundle.notes, ['operator note']);
+
     const sale = await httpJson(`${baseUrl}/fiscalize/sale`, {
       draft: { orderId: 'order-1', isReturn: false },
       runtime: { cashboxUniqueNumber: 'SWK00035753' },
@@ -1917,7 +2237,7 @@ async function validateSidecarServer() {
     assert.strictEqual(sale.ticketUrl, 'https://ticket.example/sale');
     assert.strictEqual(sale.ticketPrintUrl, 'https://ticket.example/sale/print');
     assert.strictEqual(calls[0].operation, 'sale');
-    assert.strictEqual(calls[0].runtime.cashboxUniqueNumber, 'SWK00035753');
+    assert.strictEqual(calls[0].runtime.cashboxUniqueNumber, undefined, 'caller must not override configured cashbox identity');
 
     const saleReturn = await httpJson(`${baseUrl}/fiscalize/return`, {
       draft: { orderId: 'order-1', isReturn: true },
@@ -1950,6 +2270,18 @@ async function validateSidecarServer() {
     assert.strictEqual(zReport.printLines[0].value, 'Z-ОТЧЕТ / ЗАКРЫТИЕ СМЕНЫ');
     assert.strictEqual(calls[3].operation, 'z-report');
 
+    const moneyOperation = await httpJson(`${baseUrl}/money-operation`, {
+      operationType: 0,
+      sum: 250,
+      externalCheckNumber: 'money-operation-1',
+      runtime: { token: 'caller-token-must-be-ignored', cashboxUniqueNumber: 'OTHER' },
+    });
+    assert.strictEqual(moneyOperation.ok, true);
+    assert.strictEqual(moneyOperation.cashBalance, 250);
+    assert.strictEqual(moneyOperation.cashboxRegistrationNumber, '943317789864');
+    assert.strictEqual(calls[4].operation, 'money-operation');
+    assert.strictEqual(calls[4].runtime.token, undefined);
+
     const tickets = await httpJson(`${baseUrl}/tickets/by-order`, {
       iikoOrderId: 'order-1',
       runtime: { cashboxUniqueNumber: 'SWK00035753' },
@@ -1958,7 +2290,7 @@ async function validateSidecarServer() {
     assert.strictEqual(tickets.records.length, 1);
     assert.strictEqual(tickets.records[0].externalCheckNumber, 'sidecar-sale');
     assert.strictEqual(tickets.records[0].ticketPrintUrl, 'https://ticket.example/sale/print');
-    assert.strictEqual(calls[4].operation, 'ticket-lookup');
+    assert.strictEqual(calls[5].operation, 'ticket-lookup');
 
     const printFormat = await httpJson(`${baseUrl}/tickets/print-format`, {
       externalCheckNumber: 'sidecar-sale',
@@ -1967,9 +2299,9 @@ async function validateSidecarServer() {
     assert.strictEqual(printFormat.ok, true);
     assert.strictEqual(printFormat.lines.length, 2);
     assert.strictEqual(printFormat.lines[0].value, 'Фискальный чек');
-    assert.strictEqual(calls[5].operation, 'ticket-print-format');
-    assert.strictEqual(calls[5].runtime.paperKind, 0);
-    assert.strictEqual(calls[5].runtime.acceptLanguage, 'ru-RU');
+    assert.strictEqual(calls[6].operation, 'ticket-print-format');
+    assert.strictEqual(calls[6].runtime.paperKind, 0);
+    assert.strictEqual(calls[6].runtime.acceptLanguage, 'ru-RU');
 
     const offlineStatus = await httpJson(`${baseUrl}/offline/status`);
     assert.strictEqual(offlineStatus.ok, true);
@@ -1988,9 +2320,25 @@ async function validateSidecarServer() {
     assert.strictEqual(offlineSync.synced, 1);
     assert.strictEqual(offlineSync.failed, 0);
     assert.strictEqual(offlineSync.results[0].externalCheckNumber, 'offline-sale-1');
-    assert.strictEqual(calls[6].operation, 'offline-sync');
+    assert.strictEqual(calls[7].operation, 'offline-sync');
   } finally {
     await closeServer(server);
+  }
+
+  const protectedServer = createSidecarServer({ version: 'test-version', authToken: 'a'.repeat(32) });
+  const protectedBaseUrl = await listen(protectedServer);
+  try {
+    const unauthorized = await httpJson(`${protectedBaseUrl}/status`);
+    assert.strictEqual(unauthorized.error, 'unauthorized');
+    const authorized = await httpJson(`${protectedBaseUrl}/status`, null, {
+      authorization: `Bearer ${'a'.repeat(32)}`,
+    });
+    assert.strictEqual(authorized.ok, false);
+    assert.strictEqual(authorized.status, 'not_configured');
+    assert.strictEqual(authorized.offlineAutonomousHours, 0);
+    assert.strictEqual(authorized.localDeferredQueueMaxHours, 0);
+  } finally {
+    await closeServer(protectedServer);
   }
 }
 
@@ -2055,7 +2403,7 @@ function closeServer(server) {
   });
 }
 
-function httpJson(url, body = null) {
+function httpJson(url, body = null, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const payload = body ? JSON.stringify(body) : null;
@@ -2068,8 +2416,9 @@ function httpJson(url, body = null) {
         ? {
             'content-type': 'application/json',
             'content-length': Buffer.byteLength(payload),
+            ...extraHeaders,
           }
-        : {},
+        : extraHeaders,
     }, (response) => {
       let text = '';
       response.setEncoding('utf8');
@@ -2112,6 +2461,7 @@ validateFiscalService()
   .then(validateFiscalServiceLostResponseRecoveryWithoutKnownShift)
   .then(validateCashboxQueue)
   .then(validateWebkassaClient)
+  .then(validateFiscalServiceMoneyOperation)
   .then(validateFiscalServiceOfflineQueueSync)
   .then(validateFiscalServiceOfflineSaleReturnQueueSync)
   .then(validateSidecarServer)

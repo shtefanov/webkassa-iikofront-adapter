@@ -58,15 +58,19 @@ Manifest fields:
 
 ```json
 {
+  "schemaVersion": 1,
+  "project": "webkassa",
   "channel": "stable",
   "version": "0.12.0",
-  "packageUrl": "https://iiko-plugin.kz/downloads/webkassa/0.12.0/Webkassa.IikoFrontAdapter.zip",
+  "packageUrl": "https://iiko-plugin.kz/downloads/webkassa/stable/0.12.0/Resto.Front.Api.Webkassa.V9-0.12.0-20260720-120000.zip",
+  "packageFileName": "Resto.Front.Api.Webkassa.V9-0.12.0-20260720-120000.zip",
+  "packageSize": 123456,
   "sha256": "<package-sha256>",
-  "signature": "<detached-signature-or-empty-until-signing-is-enabled>",
   "minIikoFrontVersion": "9.5",
   "minIikoFrontApiVersion": "V9",
+  "supportedIikoFrontApiVersions": ["V9"],
   "releaseNotesUrl": "https://iiko-plugin.kz/releases/webkassa/0.12.0",
-  "publishedAt": "DD-MM-YYYY"
+  "publishedAt": "2026-07-20T12:00:00+05:00"
 }
 ```
 

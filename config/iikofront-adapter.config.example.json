@@ -14,7 +14,8 @@
   "defaults": {
     "unitCode": 796,
     "roundType": 2,
-    "paymentType": 0
+    "paymentType": 0,
+    "paymentTypeMap": {}
   },
   "fiscalization": {
     "protocolVersion": "2.0.3",
@@ -30,7 +31,7 @@
     "acceptLanguage": "ru-RU"
   },
   "offline": {
-    "enabled": true,
+    "enabled": false,
     "maxOfflineHours": 72,
     "syncOnReconnect": true
   },
@@ -91,17 +92,18 @@
     "enabled": true,
     "baseUrl": "http://127.0.0.1:17777",
     "timeoutMs": 30000,
-    "healthPath": "/health"
+    "healthPath": "/health",
+    "authTokenSecretRef": "Webkassa dev SWK00035753 sidecar authentication token"
   },
   "requestPolicy": {
     "timeoutMs": 30000,
-    "maxRetries": 1,
+    "maxRetries": 0,
     "retryOnlyWithExternalCheckNumber": true,
     "serializePerCashbox": true
   },
   "storage": {
-    "provider": "sqlite",
-    "path": "%ProgramData%\\WebkassaIikoFrontAdapter\\fiscal-results.sqlite"
+    "provider": "json",
+    "path": "fiscal-results.json"
   },
   "logging": {
     "level": "info",

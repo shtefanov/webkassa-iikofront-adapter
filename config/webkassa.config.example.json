@@ -1,6 +1,7 @@
 {
   "environment": "dev",
   "baseUrl": "https://devkkm.webkassa.kz",
+  "companyProfile": "demo-company",
   "cashboxes": [
     {
       "name": "test-cashbox",
@@ -10,18 +11,32 @@
       "loginSecretRef": "Webkassa test login - SWK00035753",
       "defaultUnitCode": 796,
       "defaultRoundType": 2,
-      "defaultPaymentType": 0
+      "defaultPaymentType": 0,
+      "paymentTypeMap": {}
     }
   ],
   "requestPolicy": {
     "serializePerCashbox": true,
     "timeoutMs": 30000,
-    "maxRetries": 1,
+    "maxRetries": 0,
     "retryOnlyWithExternalCheckNumber": true
   },
+  "fiscalization": {
+    "protocolVersion": "2.0.3",
+    "writeFiscalData": true
+  },
+  "webnkt": {
+    "enabled": false,
+    "requireIdentifier": false
+  },
   "storage": {
-    "provider": "pending",
-    "connectionSecretRef": null
+    "provider": "json",
+    "path": "fiscal-results.json"
+  },
+  "offline": {
+    "enabled": false,
+    "maxOfflineHours": 72,
+    "syncOnReconnect": true
   },
   "logging": {
     "level": "info",

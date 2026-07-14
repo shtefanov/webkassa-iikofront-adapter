@@ -83,8 +83,14 @@ public sealed class IikoChequePositionDraft
     [DataMember(Name = "markup")]
     public decimal? Markup { get; set; }
 
-    [DataMember(Name = "vat")]
-    public decimal? Vat { get; set; }
+    [DataMember(Name = "isTaxable")]
+    public bool IsTaxable { get; set; }
+
+    [DataMember(Name = "taxPercent")]
+    public decimal? TaxPercent { get; set; }
+
+    [DataMember(Name = "markList")]
+    public List<string> MarkList { get; private set; } = new List<string>();
 
     [DataMember(Name = "sectionCode")]
     public int? SectionCode { get; set; }

@@ -2,7 +2,7 @@ namespace Resto.Front.Api.Webkassa.V9;
 
 public static class ReleaseInfo
 {
-    public const string Version = "0.11.45-beta";
+    public const string Version = "0.11.49-beta";
 
     public const string ProtocolVersion = "2.0.3";
 

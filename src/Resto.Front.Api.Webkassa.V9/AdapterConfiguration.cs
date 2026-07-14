@@ -66,6 +66,7 @@ public sealed class AdapterConfiguration
         SecretRefs ??= new AdapterSecretReferences();
         Auth ??= new AdapterAuthOptions();
         Defaults ??= new AdapterDefaults();
+        Defaults.PaymentTypeMap ??= new Dictionary<string, int>();
         Fiscalization ??= new AdapterFiscalizationOptions();
         Printing ??= new AdapterPrintingOptions();
         Offline ??= new AdapterOfflineOptions();
@@ -110,11 +111,20 @@ public sealed class AdapterConfiguration
         NormalizeForRuntime();
         var errors = new List<string>();
 
+        if (!string.Equals(Environment, "dev", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(Environment, "prod", StringComparison.OrdinalIgnoreCase))
+            errors.Add("environment must be dev or prod.");
+
         if (string.IsNullOrWhiteSpace(BaseUrl))
             errors.Add("baseUrl is required.");
+        else if (!IsOfficialWebkassaUrl(BaseUrl, Environment))
+            errors.Add("baseUrl must be the official Webkassa production or development HTTPS endpoint for the configured environment.");
 
         if (string.IsNullOrWhiteSpace(CashboxUniqueNumber))
             errors.Add("cashboxUniqueNumber is required.");
+
+        if (string.IsNullOrWhiteSpace(CompanyProfile))
+            errors.Add("companyProfile is required.");
 
         if (SecretRefs == null)
             errors.Add("secretRefs is required.");
@@ -146,8 +156,19 @@ public sealed class AdapterConfiguration
         if (RequestPolicy.TimeoutMs <= 0)
             errors.Add("requestPolicy.timeoutMs must be greater than zero.");
 
-        if (RequestPolicy.MaxRetries < 0)
-            errors.Add("requestPolicy.maxRetries must be zero or greater.");
+        if (RequestPolicy.MaxRetries != 0)
+            errors.Add("requestPolicy.maxRetries must be 0; the current release uses recovery and caller retry with the same ExternalCheckNumber instead of blind network retries.");
+
+        foreach (var mapping in Defaults.PaymentTypeMap)
+        {
+            if (mapping.Value != 0 && mapping.Value != 1 && mapping.Value != 4)
+                errors.Add($"defaults.paymentTypeMap.{mapping.Key} must be 0, 1, or 4.");
+        }
+
+        if (!string.Equals(Storage.Provider, "json", StringComparison.OrdinalIgnoreCase))
+            errors.Add("storage.provider must be json in the current release.");
+        if (string.IsNullOrWhiteSpace(Storage.Path) || Path.GetFileName(Storage.Path) != Storage.Path)
+            errors.Add("storage.path must be a file name inside the protected sidecar data directory.");
 
         if (Fiscalization == null || !Fiscalization.WriteFiscalData)
             errors.Add("fiscalization.writeFiscalData must be true because returns require stored original sale fiscal data.");
@@ -155,11 +176,10 @@ public sealed class AdapterConfiguration
         if (Fiscalization == null || Fiscalization.ProtocolVersion != ReleaseInfo.ProtocolVersion)
             errors.Add($"fiscalization.protocolVersion must be {ReleaseInfo.ProtocolVersion}.");
 
-        if (Offline == null || !Offline.Enabled)
-            errors.Add("offline.enabled must be true because Webkassa autonomous operation is required.");
-
-        if (Offline == null || Offline.MaxOfflineHours != 72)
-            errors.Add("offline.maxOfflineHours must be 72.");
+        if (Offline == null)
+            errors.Add("offline is required.");
+        else if (Offline.Enabled && (Offline.MaxOfflineHours <= 0 || Offline.MaxOfflineHours > 72))
+            errors.Add("offline.maxOfflineHours must be between 1 and 72 when local deferred queueing is explicitly enabled.");
 
         if (WebNkt != null && WebNkt.Enabled)
         {
@@ -200,6 +220,10 @@ public sealed class AdapterConfiguration
                 errors.Add("sidecar.baseUrl is required.");
             if (Sidecar.TimeoutMs <= 0)
                 errors.Add("sidecar.timeoutMs must be greater than zero.");
+            if (string.IsNullOrWhiteSpace(Sidecar.AuthTokenSecretRef))
+                errors.Add("sidecar.authTokenSecretRef is required.");
+            if (!IsLoopbackSidecarUrl(Sidecar.BaseUrl))
+                errors.Add("sidecar.baseUrl must use HTTP on loopback (127.0.0.1, localhost, or ::1).");
         }
 
         if (Logging == null)
@@ -218,6 +242,23 @@ public sealed class AdapterConfiguration
         }
 
         return errors;
+    }
+
+    private static bool IsLoopbackSidecarUrl(string? value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttp)
+            return false;
+        return uri.IsLoopback;
+    }
+
+    private static bool IsOfficialWebkassaUrl(string? value, string? environment)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+            return false;
+        var expectedHost = string.Equals(environment, "prod", StringComparison.OrdinalIgnoreCase)
+            ? "kkm.webkassa.kz"
+            : "devkkm.webkassa.kz";
+        return string.Equals(uri.Host, expectedHost, StringComparison.OrdinalIgnoreCase);
     }
 }
 
@@ -266,6 +307,9 @@ public sealed class AdapterDefaults
 
     [DataMember(Name = "paymentType")]
     public int PaymentType { get; set; } = 0;
+
+    [DataMember(Name = "paymentTypeMap")]
+    public Dictionary<string, int> PaymentTypeMap { get; set; } = new Dictionary<string, int>();
 }
 
 [DataContract]
@@ -325,7 +369,7 @@ public sealed class AdapterPrintingOptions
 public sealed class AdapterOfflineOptions
 {
     [DataMember(Name = "enabled")]
-    public bool Enabled { get; set; } = true;
+    public bool Enabled { get; set; }
 
     [DataMember(Name = "maxOfflineHours")]
     public int MaxOfflineHours { get; set; } = 72;
@@ -488,6 +532,9 @@ public sealed class AdapterSidecarOptions
 
     [DataMember(Name = "healthPath")]
     public string HealthPath { get; set; } = "/health";
+
+    [DataMember(Name = "authTokenSecretRef")]
+    public string AuthTokenSecretRef { get; set; } = "Webkassa sidecar authentication token";
 }
 
 [DataContract]
@@ -497,7 +544,7 @@ public sealed class AdapterRequestPolicy
     public int TimeoutMs { get; set; } = 30000;
 
     [DataMember(Name = "maxRetries")]
-    public int MaxRetries { get; set; } = 1;
+    public int MaxRetries { get; set; }
 
     [DataMember(Name = "retryOnlyWithExternalCheckNumber")]
     public bool RetryOnlyWithExternalCheckNumber { get; set; } = true;
@@ -510,10 +557,10 @@ public sealed class AdapterRequestPolicy
 public sealed class AdapterStorageOptions
 {
     [DataMember(Name = "provider")]
-    public string Provider { get; set; } = "sqlite";
+    public string Provider { get; set; } = "json";
 
     [DataMember(Name = "path")]
-    public string Path { get; set; } = "%ProgramData%\\WebkassaIikoFrontAdapter\\fiscal-results.sqlite";
+    public string Path { get; set; } = "fiscal-results.json";
 }
 
 [DataContract]

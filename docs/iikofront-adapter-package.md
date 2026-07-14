@@ -5,8 +5,9 @@ Date: 02-07-2026
 ## Purpose
 
 Prepare a repeatable package for the Webkassa iikoFront fiscal-register adapter
-spike. The package is for demo/test terminals only until the full Webkassa
-mapping, configuration, and storage are implemented.
+beta. The package is intended for approved test and pilot iikoFront terminals.
+Stable/production rollout requires the full release checklist and confirmed
+iiko licensing.
 
 ## Package Command
 
@@ -28,25 +29,45 @@ The zip contains:
 - `Manifest.xml` with `LicenseModuleId=21016318`;
 - `Manifest.xml.template`;
 - setup utility under `setup/`;
+- sidecar Windows service under `sidecar-service/`;
+- Node sidecar runtime under `sidecar-runtime/`;
+- updater scripts under `updater/`;
+- terminal installer `install-iikofront-terminal.ps1`;
 - safe package manifest;
 - `VERSION`;
-- `README-INSTALL.txt` with demo-terminal checks.
+- `README-INSTALL.txt` with beta-terminal checks.
 
 It must not contain Webkassa API keys, login/password, tokens, live cashbox
 configuration, or raw iiko logs.
 
 ## Current Package Boundary
 
+> The archive listed below predates the security/fiscal-contract corrections
+> made after the 14-07-2026 audit. It must not be promoted or installed as a new
+> production build. Rebuild and rerun the Windows validation checklist first.
+
 Current package:
 
 ```text
-dist/iikofront-adapter/Resto.Front.Api.Webkassa.V9-0.10.1-spike-20260710-113914.zip
+dist/iikofront-adapter/Resto.Front.Api.Webkassa.V9-0.11.45-beta-20260713-182351.zip
 ```
 
 Windows source path:
 
 ```text
-C:\OpenClaw\work\webkassa\dist\iikofront-adapter\Resto.Front.Api.Webkassa.V9-0.10.1-spike-20260710-113914.zip
+C:\OpenClaw\work\webkassa\dist\iikofront-adapter\Resto.Front.Api.Webkassa.V9-0.11.45-beta-20260713-182351.zip
+```
+
+SHA256:
+
+```text
+d6fab62c7096fd2a578480ce0cbeab0fb3c33bcb35379e9d11cb1761ddf96408
+```
+
+Size:
+
+```text
+342666 bytes
 ```
 
 The package manifest records:
@@ -58,7 +79,9 @@ The package manifest records:
 - `iikoManifestIncluded=true`;
 - `webkassaProtocolVersion=2.0.3`;
 - `writeFiscalDataRequired=true`;
-- `offlineAutonomousHours=72`;
+- `webkassaAutonomousModeImplemented=false`;
+- `localDeferredQueueDefaultEnabled=false` and
+  `localDeferredQueueMaxHours=72`;
 - `syncOnReconnectRequired=true`;
 - `webNktSupported=true`;
 - `webNktFieldMapConfigurable=true`;
@@ -68,74 +91,86 @@ The package manifest records:
 - `supportBundleWebNktDiagnostics=true`;
 - `offlineSaleReturnSyncCovered=true`;
 - `includesSetupUtility=true`.
+- `includesTerminalInstaller=true`;
+- `includesUpdater=true`;
+- `includesSidecarService=true`;
+- `includesSidecarRuntime=true`.
 
-The current adapter is a compile-level spike:
+The current adapter is a beta fiscalization build:
 
 - registers an `ICashRegisterFactory`;
 - creates an `ICashRegister`;
-- maps `ChequeTask` to an internal `IikoChequeDraft` candidate;
-- logs a safe `DoCheque` summary;
-- intentionally throws a clear `DeviceException` for fiscal operations that are
-  not implemented yet.
+- maps `ChequeTask` to an internal `IikoChequeDraft`;
+- sends sale and sale-return fiscal operations through the local sidecar;
+- supports Webkassa X/Z reports through the sidecar;
+- sends iiko pay-in/pay-out through Webkassa `/api/v4/MoneyOperation`;
+- prints official Webkassa `Ticket/PrintFormat` receipts/reports through the
+  iiko receipt printer with Windows/PDF fallback;
+- persists fiscal results and maintains an offline queue for recoverable network
+  failures.
 
-This is useful for verifying plugin loading, driver visibility, and iikoFront
-API compatibility without fiscal writes.
-
-On the Windows iikoFront 9.5 VM, the current package loaded successfully from
+On the Windows iikoFront 9.5 terminal, `0.11.45-beta` installed successfully
+through the updater into
 `C:\Program Files\iiko\iikoRMS\Front.Net\Plugins\Resto.Front.Api.Webkassa.V9`.
-iikoFront started `Resto.Front.Api.Host.exe`, connected
-`Resto.Front.Api.Webkassa.V9`, and registered
-`WebkassaFiscalAdapterSpike`.
+The legacy `Webkassa.IikoFrontAdapter.Spike` plugin folder was moved into
+backup so iikoFront does not load both identities.
 
-Device setup was also validated on the same VM:
+## Beta Deployment Checklist
 
-- model `Webkassa fiscal adapter spike` appeared under `ККМ, принтер чеков`;
-- iikoFront added device
-  `7ab039db-03f7-442c-a552-ef3a2dadc5f0` with
-  `factoryCode=WebkassaFiscalAdapterSpike`;
-- the device list showed a green status mark;
-- the device `TEST` action completed successfully and returned a successful
-  X-report-style `CashRegisterResult` with serial
-  `WEBKASSA-IIFR-SPIKE`.
-
-## Demo Deployment Checklist
-
-Do this only on demo/test iikoFront:
+Do this only on approved test/pilot iikoFront terminals:
 
 1. Confirm the exact iikoFront plugin folder for the installed version.
-2. Back up the folder before copying any adapter files.
-3. Copy the unpacked package into a separate Webkassa adapter subfolder.
-4. Restart only the demo iikoFront process if required by the SDK deployment
-   rules.
-5. Check iikoFront logs for plugin load or assembly binding errors.
-6. Confirm the Webkassa fiscal register factory appears in device setup.
-7. Do not close a real fiscal sale through this adapter until configuration and
-   storage are wired.
+2. Confirm Node.js is installed and visible at
+   `C:\Program Files\nodejs\node.exe`, or pass `-NodePath`.
+3. Confirm the iikoFront user account and pass it through `-IikoFrontUser` when
+   installing from another administrator account.
+4. Install from an elevated PowerShell session with
+   `install-iikofront-terminal.ps1` or the updater.
+5. Confirm `WebkassaIikoFrontSidecar` starts, `GET /health` returns `ok=true`,
+   and authenticated `GET /status` returns `ok=true`.
+6. Configure Webkassa credentials through the elevated setup utility or an
+   elevated `Настройки Webkassa` session; never copy raw
+   secrets into package files.
+7. Run the full release checklist before promoting any build to `stable`.
 
-## Expected First Validation
+## Expected Validation
 
-Success criteria for the first demo run:
+Success criteria for a beta install:
 
-- plugin loads;
-- cash-register factory registration is logged;
-- Webkassa fiscal-register model appears in device setup;
-- adding the device succeeds;
-- device `TEST` succeeds;
-- no unhandled exception on startup;
-- no Webkassa network call is made;
-- no sale or return fiscal operation is performed.
+- package version matches `VERSION`;
+- plugin loads under `Resto.Front.Api.Webkassa.V9`;
+- sidecar service runs locally on `127.0.0.1:17777`;
+- authenticated `/status` returns `ok=true`; an unauthenticated request returns
+  `401`;
+- Webkassa connection test passes with configured credentials;
+- sale, return, pay-in, pay-out, receipt print, X-report, Z-report, iikoFront
+  restart, sidecar restart, Code 14 recovery, VAT/rounding, and marking checks
+  pass before stable promotion.
 
-If `DoCheque` is invoked during a test sale, the expected current behavior is a
-controlled not-implemented device error. That confirms the iikoFront call path
-without risking an incomplete fiscal write.
+`0.11.45-beta` was validated for package build, updater dry-run, updater local
+install, legacy identity migration, sidecar health, and offline queue counters.
+The full live fiscal regression must be rerun before stable promotion.
 
-## Next Implementation Step
+## Rollback
 
-After adding at least one demo sale item/menu entry to the Windows iikoFront VM:
+Preferred rollback is to install the previous tested package through the updater
+or `install-iikofront-terminal.ps1`; this refreshes the plugin folder, sidecar
+runtime, and service wrapper together.
 
-1. Capture real `ChequeTask` shape for sale and refund.
-2. Build a C# `ChequeTask -> IikoChequeDraft` mapper matching
-   `docs/iiko-cheque-draft-contract.md`.
-3. Decide whether fiscal execution happens inside the plugin or through a local
-   sidecar service.
-4. Add protected configuration and secret loading for multi-company deployment.
+Manual emergency rollback after `0.11.45-beta` identity migration:
+
+1. Close iikoFront.
+2. Stop `WebkassaIikoFrontSidecar`.
+3. Move or remove
+   `C:\Program Files\iiko\iikoRMS\Front.Net\Plugins\Resto.Front.Api.Webkassa.V9`.
+4. Restore the legacy backup, for example
+   `C:\ProgramData\WebkassaIikoFrontAdapter\backups\Webkassa.IikoFrontAdapter.Spike-20260713-182432`,
+   back to
+   `C:\Program Files\iiko\iikoRMS\Front.Net\Plugins\Webkassa.IikoFrontAdapter.Spike`.
+5. Reinstall the matching previous package if sidecar runtime compatibility is
+   uncertain.
+6. Start the sidecar and iikoFront, then check logs and `/status`.
+
+Do not delete `%ProgramData%\WebkassaIikoFrontAdapter` during rollback. Config,
+DPAPI secret files, local fiscal results, logs, NKT state, and offline queue
+state live there and are intentionally preserved by the installer.

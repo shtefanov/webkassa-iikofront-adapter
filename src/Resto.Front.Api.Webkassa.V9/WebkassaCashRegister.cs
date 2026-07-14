@@ -32,6 +32,12 @@ public sealed class WebkassaCashRegister : MarshalByRefObject, ICashRegister
     private SidecarLicenseStatusResult? cachedLicenseStatus;
     private DateTime lastLicenseStatusCheckUtc = DateTime.MinValue;
     private DateTime lastLicenseWarningPopupUtc = DateTime.MinValue;
+    private string? pendingMoneyOperationExternalCheckNumber;
+    private int? pendingMoneyOperationType;
+    private decimal pendingMoneyOperationSum;
+    private DateTime lastWebkassaSuccessUtc = DateTime.MinValue;
+    private bool lastWebkassaOfflineMode;
+    private string? lastCashboxRegistrationNumber;
 
     public WebkassaCashRegister(Guid deviceId, CashRegisterSettings settings)
     {
@@ -41,7 +47,7 @@ public sealed class WebkassaCashRegister : MarshalByRefObject, ICashRegister
 
     public Guid DeviceId { get; }
 
-    public string DeviceName => settings.FriendlyName ?? "Webkassa Fiscal Adapter Spike";
+    public string DeviceName => settings.FriendlyName ?? "Webkassa Fiscal Adapter";
 
     public void Setup(DeviceSettings newSettings)
     {
@@ -129,12 +135,14 @@ public sealed class WebkassaCashRegister : MarshalByRefObject, ICashRegister
         if (licenseStatus != null && NeedsLicenseWarning(licenseStatus))
             statusBarInfo = $"Внимание: {BuildLicenseWarningMessage(licenseStatus)}";
 
+        var recentlyConnected = lastWebkassaSuccessUtc > DateTime.MinValue &&
+            DateTime.UtcNow - lastWebkassaSuccessUtc <= TimeSpan.FromMinutes(5);
         return new CashRegisterStatus
         {
             RegisterDateTime = DateTime.Now,
             HaveRegisterDateTime = true,
-            IsOfdConnected = true,
-            OfflineMode = false,
+            IsOfdConnected = recentlyConnected && !lastWebkassaOfflineMode,
+            OfflineMode = recentlyConnected && lastWebkassaOfflineMode,
             RestaurantMode = false,
             SessionNumber = cashSessionOpen ? Math.Max(cashSessionNumber, 1) : 0,
             SessionStatus = cashSessionOpen ? 1 : 0,
@@ -143,8 +151,8 @@ public sealed class WebkassaCashRegister : MarshalByRefObject, ICashRegister
             SalesSumTotal = (double)totalIncomeSum,
             CashPaymentSum = (double)cashSum,
             NonCashPaymentsSum = (double)nonCashPaymentSum,
-            SerialNumber = ReleaseInfo.DeviceSerialPlaceholder,
-            RegistrationNumber = ReleaseInfo.CashboxRegistrationPlaceholder,
+            SerialNumber = configuration.CashboxUniqueNumber,
+            RegistrationNumber = lastCashboxRegistrationNumber ?? string.Empty,
             StatusBarInfo = statusBarInfo,
         };
     }
@@ -168,7 +176,7 @@ public sealed class WebkassaCashRegister : MarshalByRefObject, ICashRegister
 
         var draft = ChequeTaskDraftMapper.Map(chequeTask);
         var enrichedNktPositions = NktIdentifierEnricher.Enrich(draft);
-        var externalCheckNumber = ChequeTaskDraftMapper.BuildExternalCheckNumber(draft);
+        var externalCheckNumber = ResolveOperationExternalCheckNumber(context, draft);
         PluginContext.Log.Info(
             $"Webkassa fiscal adapter spike mapped draft. ExternalCheckNumber={externalCheckNumber}, IsReturn={draft.IsReturn}, Positions={draft.Positions.Count}, NktEnrichedPositions={enrichedNktPositions}, Payments={draft.Payments.Count}, Warnings={draft.Warnings.Count}");
 
@@ -177,7 +185,7 @@ public sealed class WebkassaCashRegister : MarshalByRefObject, ICashRegister
         if (configuration.Fiscalization.DryRunDoCheque)
         {
             saleNumber++;
-            ApplyChequeTotals(draft, chequeTask);
+            ApplyChequeTotals(draft);
             SavePersistentStateBestEffort();
             PluginContext.Log.Info(
                 $"Webkassa fiscal adapter spike dry-run DoCheque accepted. ExternalCheckNumber={externalCheckNumber}, OrderNumber={draft.OrderNumber}, ResultSum={draft.ResultSum}, CashSum={cashSum}, TotalIncomeSum={totalIncomeSum}, SalesCount={salesCount}, WriteFiscalData={configuration.Fiscalization.WriteFiscalData}");
@@ -196,11 +204,14 @@ public sealed class WebkassaCashRegister : MarshalByRefObject, ICashRegister
             using (var sidecar = new SidecarClient(configuration))
             {
                 var result = draft.IsReturn
-                    ? sidecar.FiscalizeReturn(draft, null)
-                    : sidecar.FiscalizeSale(draft);
+                    ? sidecar.FiscalizeReturn(draft, externalCheckNumber, null)
+                    : sidecar.FiscalizeSale(draft, externalCheckNumber);
 
                 saleNumber++;
-                ApplyChequeTotals(draft, chequeTask);
+                ApplyChequeTotals(draft);
+                lastWebkassaSuccessUtc = DateTime.UtcNow;
+                lastWebkassaOfflineMode = result.OfflineMode;
+                lastCashboxRegistrationNumber = result.CashboxRegistrationNumber;
                 SavePersistentStateBestEffort();
                 TryAutoPrintFiscalReceipt(draft, result, viewManager);
 
@@ -261,6 +272,8 @@ public sealed class WebkassaCashRegister : MarshalByRefObject, ICashRegister
                 using (var sidecar = new SidecarClient(configuration))
                 {
                     var result = sidecar.RunXReport();
+                    lastWebkassaSuccessUtc = DateTime.UtcNow;
+                    lastWebkassaOfflineMode = false;
                     PluginContext.Log.Info($"Webkassa fiscal adapter sidecar X-report accepted. Cashier={cashier?.Name}, Status={result.Status}, ReportNumber={result.ReportNumber}, ShiftNumber={result.ShiftNumber}, DocumentCount={result.DocumentCount}");
                     TryPrintReport(result, viewManager);
                     return BuildSnapshotResult(message: $"Webkassa X-report accepted: {result.ReportNumber}");
@@ -290,6 +303,8 @@ public sealed class WebkassaCashRegister : MarshalByRefObject, ICashRegister
                 using (var sidecar = new SidecarClient(configuration))
                 {
                     var result = sidecar.RunZReport();
+                    lastWebkassaSuccessUtc = DateTime.UtcNow;
+                    lastWebkassaOfflineMode = false;
                     PluginContext.Log.Info($"Webkassa fiscal adapter sidecar Z-report accepted. Cashier={cashier?.Name}, Status={result.Status}, ReportNumber={result.ReportNumber}, ShiftNumber={result.ShiftNumber}, DocumentCount={result.DocumentCount}");
                     CloseCashSessionState();
                     TryPrintReport(result, viewManager);
@@ -331,24 +346,73 @@ public sealed class WebkassaCashRegister : MarshalByRefObject, ICashRegister
     {
         EnsureRunning();
         var amount = ResolveMoneyTaskAmount(task);
-        if (amount > 0m)
-            cashSum += amount;
-        SavePersistentStateBestEffort();
-        PluginContext.Log.Info($"Webkassa fiscal adapter accepted local pay-in. Cashier={cashier?.Name}, Amount={amount}, CashSum={cashSum}");
-        return BuildSnapshotResult(message: $"Webkassa local pay-in accepted: {amount.ToString(CultureInfo.InvariantCulture)}");
+        return ExecuteMoneyOperation(0, amount, cashier, viewManager);
     }
 
     public CashRegisterResult DoPayOut(PayOutTask task, IUser cashier, IViewManager viewManager)
     {
         EnsureRunning();
         var amount = ResolveMoneyTaskAmount(task);
-        if (amount > 0m)
-            cashSum = Math.Max(0m, cashSum - amount);
-        else if (cashSum > 0m)
-            cashSum = 0m;
+        return ExecuteMoneyOperation(1, amount, cashier, viewManager);
+    }
+
+    private CashRegisterResult ExecuteMoneyOperation(int operationType, decimal amount, IUser cashier, IViewManager viewManager)
+    {
+        if (amount <= 0m)
+            throw new DeviceException("Webkassa money operation requires a positive amount.");
+
+        var configuration = LoadConfigurationBestEffort();
+        if (!configuration.Fiscalization.DryRunDoCheque && configuration.Sidecar != null && configuration.Sidecar.Enabled)
+        {
+            if (!string.IsNullOrWhiteSpace(pendingMoneyOperationExternalCheckNumber) &&
+                (pendingMoneyOperationType != operationType || pendingMoneyOperationSum != amount))
+            {
+                throw new DeviceException("Previous Webkassa money operation has an uncertain result. Repeat the same operation first.");
+            }
+
+            if (string.IsNullOrWhiteSpace(pendingMoneyOperationExternalCheckNumber))
+            {
+                pendingMoneyOperationType = operationType;
+                pendingMoneyOperationSum = amount;
+                pendingMoneyOperationExternalCheckNumber = $"iiko-money-{operationType}-{Guid.NewGuid():N}";
+                SavePersistentStateBestEffort();
+            }
+
+            try
+            {
+                using (var sidecar = new SidecarClient(configuration))
+                {
+                    var result = sidecar.RunMoneyOperation(operationType, amount, pendingMoneyOperationExternalCheckNumber!);
+                    lastWebkassaSuccessUtc = DateTime.UtcNow;
+                    lastWebkassaOfflineMode = result.OfflineMode || result.CashboxOfflineMode;
+                    lastCashboxRegistrationNumber = result.CashboxRegistrationNumber ?? lastCashboxRegistrationNumber;
+                    ApplyMoneyOperationToLocalState(operationType, amount);
+                    var externalCheckNumber = pendingMoneyOperationExternalCheckNumber;
+                    pendingMoneyOperationExternalCheckNumber = null;
+                    pendingMoneyOperationType = null;
+                    pendingMoneyOperationSum = 0m;
+                    SavePersistentStateBestEffort();
+                    PluginContext.Log.Info($"Webkassa money operation accepted. Type={operationType}, Cashier={cashier?.Name}, Amount={amount}, ExternalCheckNumber={externalCheckNumber}, ShiftNumber={result.ShiftNumber}, CashBalance={result.CashBalance}, ReconciledDuplicate={result.ReconciledDuplicate}");
+                    return BuildSnapshotResult(message: $"Webkassa money operation accepted: {externalCheckNumber}");
+                }
+            }
+            catch (SidecarException error)
+            {
+                PluginContext.Log.Error($"Webkassa money operation failed or has uncertain result. Type={operationType}, Amount={amount}, ExternalCheckNumber={pendingMoneyOperationExternalCheckNumber}, Error={SafeLogMessage(error.Message)}");
+                ShowSidecarErrorPopup(viewManager, error, "Ошибка денежной операции Webkassa");
+                throw new DeviceException($"Webkassa money operation failed: {SafeDeviceMessage(BuildDeviceErrorMessage(error))}");
+            }
+        }
+
+        ApplyMoneyOperationToLocalState(operationType, amount);
         SavePersistentStateBestEffort();
-        PluginContext.Log.Info($"Webkassa fiscal adapter accepted local pay-out. Cashier={cashier?.Name}, Amount={amount}, CashSum={cashSum}");
-        return BuildSnapshotResult(message: $"Webkassa local pay-out accepted: {amount.ToString(CultureInfo.InvariantCulture)}");
+        PluginContext.Log.Info($"Webkassa dry-run money operation accepted. Type={operationType}, Cashier={cashier?.Name}, Amount={amount}, CashSum={cashSum}");
+        return BuildSnapshotResult(message: $"Webkassa dry-run money operation accepted: {amount.ToString(CultureInfo.InvariantCulture)}");
+    }
+
+    private void ApplyMoneyOperationToLocalState(int operationType, decimal amount)
+    {
+        cashSum = operationType == 0 ? cashSum + amount : Math.Max(0m, cashSum - amount);
     }
 
     public bool IsDrawerOpened()
@@ -496,9 +560,8 @@ public sealed class WebkassaCashRegister : MarshalByRefObject, ICashRegister
         }
     }
 
-    private void ApplyChequeTotals(IikoChequeDraft draft, ChequeTask chequeTask)
+    private void ApplyChequeTotals(IikoChequeDraft draft)
     {
-        var sign = CashRegisterTotalsSign(draft, chequeTask);
         var cashPayment = draft.Payments
             .Where(payment => string.Equals(payment.PaymentType, "cash", StringComparison.OrdinalIgnoreCase))
             .Sum(payment => Math.Abs(payment.Sum));
@@ -506,22 +569,16 @@ public sealed class WebkassaCashRegister : MarshalByRefObject, ICashRegister
             .Where(payment => !string.Equals(payment.PaymentType, "cash", StringComparison.OrdinalIgnoreCase))
             .Sum(payment => Math.Abs(payment.Sum));
 
-        cashSum += sign * cashPayment;
-        totalIncomeSum += sign * Math.Abs(draft.ResultSum);
-        salesSum += sign * Math.Abs(draft.ResultSum);
-        nonCashPaymentSum += sign * nonCashPayment;
+        // iikoFront validates these CashRegisterResult fields as cumulative fiscal
+        // turnover counters. A refund/storno is another fiscal document, so its
+        // absolute amount must increase the counters just like a sale. Returning
+        // net drawer/revenue balances here makes IncomeSumVerifier reject a
+        // successfully fiscalized refund and prompt the cashier to retry it.
+        cashSum += cashPayment;
+        totalIncomeSum += Math.Abs(draft.ResultSum);
+        salesSum += Math.Abs(draft.ResultSum);
+        nonCashPaymentSum += nonCashPayment;
         salesCount++;
-    }
-
-    private static decimal CashRegisterTotalsSign(IikoChequeDraft draft, ChequeTask chequeTask)
-    {
-        if (!draft.IsReturn)
-            return 1m;
-
-        if (chequeTask.IsRefund || chequeTask.IsProductRefund || chequeTask.IsCancellation || chequeTask.CancellingSaleNumber > 0)
-            return -1m;
-
-        return 1m;
     }
 
     private static decimal ResolveMoneyTaskAmount(object? task)
@@ -541,6 +598,22 @@ public sealed class WebkassaCashRegister : MarshalByRefObject, ICashRegister
         }
 
         return 0m;
+    }
+
+    private static string ResolveOperationExternalCheckNumber(IOperationDataContext context, IikoChequeDraft draft)
+    {
+        const string prefix = "webkassa-v1:";
+        var customData = context?.GetCustomData();
+        if (customData != null && customData.Length > 0 && customData.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            var stored = customData.Substring(prefix.Length);
+            if (!string.IsNullOrWhiteSpace(stored) && stored.Length <= 50)
+                return stored;
+        }
+
+        var externalCheckNumber = ChequeTaskDraftMapper.BuildExternalCheckNumber(draft);
+        context?.SetCustomData(prefix + externalCheckNumber);
+        return externalCheckNumber;
     }
 
     private static bool TryConvertToDecimal(object? value, out decimal amount)
@@ -602,6 +675,12 @@ public sealed class WebkassaCashRegister : MarshalByRefObject, ICashRegister
             nonCashPaymentSum = ReadDecimal(root, "NonCashPaymentSum", nonCashPaymentSum);
             salesCount = ReadInt(root, "SalesCount", salesCount);
             saleNumber = ReadInt(root, "SaleNumber", saleNumber);
+            pendingMoneyOperationExternalCheckNumber = root.Element("PendingMoneyOperationExternalCheckNumber")?.Value;
+            pendingMoneyOperationType = ReadNullableInt(root, "PendingMoneyOperationType");
+            pendingMoneyOperationSum = ReadDecimal(root, "PendingMoneyOperationSum", pendingMoneyOperationSum);
+            lastWebkassaSuccessUtc = ReadDateTimeUtc(root, "LastWebkassaSuccessUtc", lastWebkassaSuccessUtc);
+            lastWebkassaOfflineMode = ReadBool(root, "LastWebkassaOfflineMode", lastWebkassaOfflineMode);
+            lastCashboxRegistrationNumber = NullIfWhiteSpace(root.Element("LastCashboxRegistrationNumber")?.Value);
             PluginContext.Log.Info($"Webkassa fiscal adapter spike restored persistent state. Path={path}, CashSessionOpen={cashSessionOpen}, SalesCount={salesCount}, TotalIncomeSum={totalIncomeSum}");
         }
         catch (Exception error) when (error is IOException || error is UnauthorizedAccessException || error is InvalidDataException || error is ArgumentException || error is System.Xml.XmlException)
@@ -630,9 +709,28 @@ public sealed class WebkassaCashRegister : MarshalByRefObject, ICashRegister
                     new XElement("SalesSum", salesSum.ToString(CultureInfo.InvariantCulture)),
                     new XElement("NonCashPaymentSum", nonCashPaymentSum.ToString(CultureInfo.InvariantCulture)),
                     new XElement("SalesCount", salesCount),
-                    new XElement("SaleNumber", saleNumber)));
+                    new XElement("SaleNumber", saleNumber),
+                    new XElement("PendingMoneyOperationExternalCheckNumber", pendingMoneyOperationExternalCheckNumber ?? string.Empty),
+                    new XElement("PendingMoneyOperationType", pendingMoneyOperationType?.ToString(CultureInfo.InvariantCulture) ?? string.Empty),
+                    new XElement("PendingMoneyOperationSum", pendingMoneyOperationSum.ToString(CultureInfo.InvariantCulture)),
+                    new XElement("LastWebkassaSuccessUtc", lastWebkassaSuccessUtc == DateTime.MinValue ? string.Empty : lastWebkassaSuccessUtc.ToString("O")),
+                    new XElement("LastWebkassaOfflineMode", lastWebkassaOfflineMode),
+                    new XElement("LastCashboxRegistrationNumber", lastCashboxRegistrationNumber ?? string.Empty)));
 
-            document.Save(path);
+            var tempPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                document.Save(tempPath);
+                if (File.Exists(path))
+                    File.Replace(tempPath, path, null);
+                else
+                    File.Move(tempPath, path);
+            }
+            finally
+            {
+                if (File.Exists(tempPath))
+                    File.Delete(tempPath);
+            }
         }
         catch (Exception error) when (error is IOException || error is UnauthorizedAccessException || error is InvalidDataException || error is ArgumentException || error is System.Xml.XmlException)
         {
@@ -663,6 +761,25 @@ public sealed class WebkassaCashRegister : MarshalByRefObject, ICashRegister
     {
         var value = root.Element(name)?.Value;
         return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : fallback;
+    }
+
+    private static int? ReadNullableInt(XElement root, string name)
+    {
+        var value = root.Element(name)?.Value;
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : (int?)null;
+    }
+
+    private static DateTime ReadDateTimeUtc(XElement root, string name, DateTime fallback)
+    {
+        var value = root.Element(name)?.Value;
+        return DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
+            ? parsed.ToUniversalTime()
+            : fallback;
+    }
+
+    private static string? NullIfWhiteSpace(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
     private static decimal ReadDecimal(XElement root, string name, decimal fallback)

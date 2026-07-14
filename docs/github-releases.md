@@ -45,7 +45,7 @@ Each GitHub Release must include:
 - configuration or migration notes;
 - validation performed;
 - package SHA256;
-- known issues;
+- known issues from `docs/release-known-issues.md`;
 - rollback notes.
 
 Do not include raw secrets, production configs, customer logs, DPAPI files, or

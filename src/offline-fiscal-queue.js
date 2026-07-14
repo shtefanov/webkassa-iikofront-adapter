@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { stableHash } = require('./fiscal-result-store');
+const { withFileLock, writeJsonAtomic } = require('./durable-json-file');
 
 const OFFLINE_SCHEMA_VERSION = 1;
 const MAX_OFFLINE_HOURS = 72;
@@ -24,9 +25,9 @@ class OfflineFiscalQueue {
   constructor(filePath, options = {}) {
     if (!filePath) throw new Error('filePath is required');
     this.filePath = filePath;
-    this.maxOfflineHours = options.maxOfflineHours || MAX_OFFLINE_HOURS;
-    if (this.maxOfflineHours !== MAX_OFFLINE_HOURS) {
-      throw new Error(`offline max hours must be ${MAX_OFFLINE_HOURS}`);
+    this.maxOfflineHours = options.maxOfflineHours ?? MAX_OFFLINE_HOURS;
+    if (!Number.isInteger(this.maxOfflineHours) || this.maxOfflineHours < 1 || this.maxOfflineHours > MAX_OFFLINE_HOURS) {
+      throw new Error(`offline max hours must be an integer between 1 and ${MAX_OFFLINE_HOURS}`);
     }
   }
 
@@ -40,17 +41,19 @@ class OfflineFiscalQueue {
   }
 
   write(state) {
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(tempPath, `${JSON.stringify(state, null, 2)}\n`);
-    fs.renameSync(tempPath, this.filePath);
+    writeJsonAtomic(this.filePath, state);
   }
 
   enqueue(input, clock = new Date()) {
     validateInput(input);
-    const state = this.read();
-    const existing = state.items.find((item) => item.externalCheckNumber === input.externalCheckNumber);
-    if (existing) return existing;
+    return withFileLock(this.filePath, () => {
+      const state = this.read();
+      const existing = state.items.find((item) =>
+        item.environment === input.environment &&
+        item.companyId === input.companyId &&
+        item.cashboxUniqueNumber === input.cashboxUniqueNumber &&
+        item.externalCheckNumber === input.externalCheckNumber);
+      if (existing) return existing;
 
     const createdAt = clock.toISOString();
     const expiresAt = addHours(clock, this.maxOfflineHours).toISOString();
@@ -76,9 +79,10 @@ class OfflineFiscalQueue {
       syncedFiscalExternalCheckNumber: null,
     };
 
-    state.items.push(item);
-    this.write(state);
-    return item;
+      state.items.push(item);
+      this.write(state);
+      return item;
+    });
   }
 
   listPending(clock = new Date()) {
@@ -107,20 +111,22 @@ class OfflineFiscalQueue {
   }
 
   expireOverdue(clock = new Date()) {
-    const state = this.read();
-    let changed = false;
-    state.items = state.items.map((item) => {
-      if (item.status !== 'pending') return item;
-      if (new Date(item.expiresAt).getTime() >= clock.getTime()) return item;
-      changed = true;
-      return {
-        ...item,
-        status: 'expired',
-        updatedAt: clock.toISOString(),
-        lastError: 'offline 72 hour limit exceeded',
-      };
+    return withFileLock(this.filePath, () => {
+      const state = this.read();
+      let changed = false;
+      state.items = state.items.map((item) => {
+        if (item.status !== 'pending') return item;
+        if (new Date(item.expiresAt).getTime() >= clock.getTime()) return item;
+        changed = true;
+        return {
+          ...item,
+          status: 'expired',
+          updatedAt: clock.toISOString(),
+          lastError: `offline ${this.maxOfflineHours} hour limit exceeded`,
+        };
+      });
+      if (changed) this.write(state);
     });
-    if (changed) this.write(state);
   }
 
   getStats(clock = new Date()) {
@@ -137,12 +143,14 @@ class OfflineFiscalQueue {
   }
 
   updateItem(externalCheckNumber, update) {
-    const state = this.read();
-    const index = state.items.findIndex((item) => item.externalCheckNumber === externalCheckNumber);
-    if (index < 0) throw new Error(`offline queue item not found: ${externalCheckNumber}`);
-    state.items[index] = update(state.items[index]);
-    this.write(state);
-    return state.items[index];
+    return withFileLock(this.filePath, () => {
+      const state = this.read();
+      const index = state.items.findIndex((item) => item.externalCheckNumber === externalCheckNumber);
+      if (index < 0) throw new Error(`offline queue item not found: ${externalCheckNumber}`);
+      state.items[index] = update(state.items[index]);
+      this.write(state);
+      return state.items[index];
+    });
   }
 }
 
