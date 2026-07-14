@@ -50,7 +50,7 @@ Compatibility mode:
 | Gateway contract tests | Passed | `npm test` passed. |
 | Windows contract tests | Passed | `npm test` passed on Windows worker. |
 | Windows package build | Passed | `0` warnings, `0` errors. |
-| GitHub Actions | Pending | Recheck the pushed release commit before publishing. |
+| GitHub Actions | Passed | CI run `29319150840` passed for audit commit `f4ac0f4`. |
 | Install from scratch | Not separately confirmed for `0.11.49-beta` | The final package was installed as SYSTEM over the existing beta terminal. |
 | Update old identity | Passed | Legacy `Webkassa.IikoFrontAdapter.Spike` folder moved to backup. |
 | Updater dry-run | Passed | Local beta manifest. |
