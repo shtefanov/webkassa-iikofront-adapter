@@ -37,6 +37,11 @@ should only adapt `ChequeTask` into `IikoChequeDraft` and pass it to this core.
   accepted retries are served locally and id reuse with a changed type/amount
   is rejected.
 - Attach `operatorDiagnostic` to unrecovered errors.
+- Keep the cashbox queue locked while bounded lost-response reconciliation is
+  running; a later request cannot overtake recovery.
+- Follow Webkassa Code `505` alternatives only when they are supplied in the
+  trusted response header `AlternativeDomainNames`; reject non-HTTPS, local,
+  IP-address, credential-bearing, port-bearing, or path-bearing targets.
 
 ## Current Non-Responsibilities
 
@@ -101,6 +106,11 @@ If history scan cannot find the check or the ticket lacks required fields, the
 original error is propagated so the caller can block duplicate fiscal writes and
 ask for operator/support action.
 
+Recovery polling defaults to three attempts separated by 1000 ms. These values
+are bounded configuration, not a blind replay of the fiscal write. The original
+sale/return request is sent only once unless Webkassa explicitly starts its
+Code 505 alternative-domain flow.
+
 ## Current Code
 
 - `src/fiscal-service.js`
@@ -124,6 +134,10 @@ Covered by contract tests:
 - lost-response recovery can find the needed shift through shift/check history
   when the original `ShiftNumber` is unknown.
 - history scan checks the latest shift first and obeys `Take <= 50`.
+- recovery holds the same-cashbox queue until reconciliation finishes.
+- the HTTP deadline includes a stalled response body.
+- Code 505 failover preserves the request and tries only bounded HTTPS
+  alternatives supplied by Webkassa.
 - Webkassa code `14` plus valid fiscal data is reconciled without a duplicate
   write.
 - cash pay-in/pay-out uses `/api/v4/MoneyOperation`.

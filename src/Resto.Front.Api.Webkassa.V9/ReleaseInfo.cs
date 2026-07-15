@@ -2,7 +2,7 @@ namespace Resto.Front.Api.Webkassa.V9;
 
 public static class ReleaseInfo
 {
-    public const string Version = "0.11.50-beta";
+    public const string Version = "0.11.52-beta";
 
     public const string ProtocolVersion = "2.0.3";
 
@@ -13,6 +13,10 @@ public static class ReleaseInfo
     public const string TargetFramework = "net472";
 
     public const string Channel = "beta";
+
+    public const string UpdateHost = "iiko-plugin.kz";
+
+    public static readonly string UpdateManifestUrl = $"https://{UpdateHost}/updates/webkassa/{Channel}.json";
 
     public const string BuildPurpose = "test-webkassa-fiscalization";
 

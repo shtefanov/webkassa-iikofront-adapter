@@ -91,12 +91,15 @@
   "sidecar": {
     "enabled": true,
     "baseUrl": "http://127.0.0.1:17777",
-    "timeoutMs": 30000,
+    "timeoutMs": 240000,
     "healthPath": "/health",
     "authTokenSecretRef": "Webkassa dev SWK00035753 sidecar authentication token"
   },
   "requestPolicy": {
     "timeoutMs": 30000,
+    "recoveryAttempts": 3,
+    "recoveryDelayMs": 1000,
+    "maxAlternativeHosts": 3,
     "maxRetries": 0,
     "retryOnlyWithExternalCheckNumber": true,
     "serializePerCashbox": true

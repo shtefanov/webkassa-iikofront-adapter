@@ -11,7 +11,7 @@ operator diagnostics.
 
 The repository is public and under active beta development.
 
-Current package version: `0.11.50-beta`.
+Current package version: `0.11.52-beta`.
 
 Production rollout requires the stable release checklist in
 [`docs/release-checklist.md`](docs/release-checklist.md).
@@ -34,8 +34,9 @@ Production rollout requires the stable release checklist in
 
 ## Supported Runtime
 
-Confirmed terminal runtime for `0.11.50-beta` (fiscal regression inherited
-unchanged from `0.11.49-beta`, protected settings UI revalidated):
+Confirmed terminal runtime for `0.11.52-beta` (fiscal regression inherited
+from `0.11.49-beta`; protected settings and past-order actions rebuilt for the
+same terminal runtime):
 
 - iikoFront API: `Resto.Front.Api.V9`.
 - Minimum confirmed iikoFront line: `9.5.x`.

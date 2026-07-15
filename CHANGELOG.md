@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased
+
+## 0.11.52-beta - 15-07-2026
+
+- Added the current plugin version and update status to the Webkassa settings
+  footer.
+- Added one non-blocking update-manifest check per iikoFront process startup.
+  A newer version produces a single native iikoFront notification; network or
+  manifest failures are logged and never block cash operations.
+- Restricted the in-plugin check to the compiled release channel and trusted
+  `iiko-plugin.kz` HTTPS manifest. Package download and installation remain in
+  the separate privileged updater.
+
+## 0.11.51-beta - 15-07-2026
+
+- Added a complete request deadline covering Webkassa response headers and
+  body, in-queue reconciliation for unknown fiscal results, and guarded
+  `Code 505` alternative-domain handling without blind fiscal retries.
+- Improved protected-secret settings: configured status, masked API key and
+  password, explicit temporary reveal/edit actions, and safe reuse of DPAPI
+  values when fields are left unchanged.
+- Added authentication-mode Base URL defaults while keeping the URL editable
+  and restricted to safe Webkassa HTTPS origins. Official reserve endpoints
+  continue to come from `AlternativeDomainNames`.
+
+- Restored Webkassa fiscal receipt actions for orders from earlier cash
+  sessions by registering them through iikoFront V9
+  `AddButtonToPastOrderScreen`, in addition to the existing current-session
+  `AddButtonToClosedOrderScreen` registration.
+- Added `QR фискального чека` beside `Печать фискального чека`. It displays the saved
+  external receipt-view HTTPS link as a QR code and supports explicit copy/open
+  without creating or retrying a fiscal document.
+- Removed the modal `Фискальный чек отправлен на печать` confirmation after a
+  successful manual reprint; success is logged and the operator can continue
+  immediately, while failures still show an error popup.
+
 ## 0.11.50-beta - 14-07-2026
 
 - Fixed the Webkassa settings regression introduced by the Windows hardening:

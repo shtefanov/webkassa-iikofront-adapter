@@ -29,6 +29,7 @@ The adapter targets the current stable iikoFront API line used by iikoRMS 9.5+:
 | A fiscal retry must reuse the same external operation id | `WebkassaCashRegister` stores the generated id through V9 `IOperationDataContext.GetCustomData/SetCustomData`; cancellation identity also prioritizes stable `OrderId + CancellingSaleNumber` because iikoFront can recreate `ChequeTask.Id` after restart. |
 | Device status methods are callable by iikoOffice/iikoFront equipment UI | `GetDeviceInfo`, `GetCashRegisterDriverParameters`, `GetCashRegisterStatus`, and `GetCashRegisterData` return structured results; iikoFront device `TEST` completed successfully on the Windows 9.5 VM. |
 | Unsupported operations fail in iiko device terms | Unsupported fiscal operations throw `DeviceException` with current device state. |
+| Fiscal receipt actions are available for both local closed orders and server-side past orders | `Plugin` registers print and external-link QR actions through both `AddButtonToClosedOrderScreen(IOrder)` and `AddButtonToPastOrderScreen(PastOrder)` and uses `PastOrder.OrderId` for read-only fiscal-result lookup. |
 | Plugin cleanup is explicit | `Plugin.Dispose()` unregisters the factory and logs unload. |
 | iiko plugin license module id is declared in code and manifest | Interim `LicenseModuleId=21016318` is set in `[PluginLicenseModuleId(...)]` and `Manifest.xml`. |
 

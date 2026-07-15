@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Drawing.Printing;
 using System.Globalization;
 using System.IO;
@@ -52,17 +51,27 @@ public static class WebkassaSettingsDialog
         private const string DeveloperCaption = "Разработано shtefanov";
         private const string DeveloperSiteCaption = "iiko-plugin.kz";
         private const string DeveloperSiteUrl = "https://iiko-plugin.kz";
+        private const string DevelopmentEnvironment = "dev";
+        private const string ProductionEnvironment = "prod";
+        private const string DevelopmentBaseUrl = "https://devkkm.webkassa.kz";
+        private const string ProductionBaseUrl = "https://kkm.webkassa.kz";
 
         private readonly ComboBox authMode = new ComboBox();
-        private readonly TextBox environment = new TextBox();
         private readonly TextBox baseUrl = new TextBox();
-        private readonly TextBox companyProfile = new TextBox();
         private readonly TextBox cashboxUniqueNumber = new TextBox();
         private readonly TextBox apiKey = new TextBox();
         private readonly TextBox login = new TextBox();
         private readonly TextBox password = new TextBox();
+        private readonly Label apiKeyStatus = new Label();
+        private readonly Label loginStatus = new Label();
+        private readonly Label passwordStatus = new Label();
+        private readonly Button apiKeyReveal = new Button();
+        private readonly Button apiKeyEdit = new Button();
         private readonly Button passwordReveal = new Button();
+        private readonly Button passwordEdit = new Button();
         private readonly ToolTip tooltips = new ToolTip();
+        private readonly System.Windows.Forms.Timer apiKeyRevealTimer = new System.Windows.Forms.Timer();
+        private readonly System.Windows.Forms.Timer passwordRevealTimer = new System.Windows.Forms.Timer();
         private readonly ComboBox printingMode = new ComboBox();
         private readonly ComboBox printerName = new ComboBox();
         private readonly TextBox pdfOutputDirectory = new TextBox();
@@ -70,6 +79,8 @@ public static class WebkassaSettingsDialog
         private readonly TextBox acceptLanguage = new TextBox();
         private readonly NumericUpDown loggingRetentionDays = new NumericUpDown();
         private readonly Label connectionStatus = new Label();
+        private readonly Label currentVersionStatus = new Label();
+        private readonly LinkLabel updateStatus = new LinkLabel();
         private readonly TextBox nationalCatalogBaseUrl = new TextBox();
         private readonly TextBox nationalCatalogApiKey = new TextBox();
         private readonly TextBox nationalCatalogLogin = new TextBox();
@@ -92,7 +103,14 @@ public static class WebkassaSettingsDialog
         private readonly IntPtr ownerHandle;
 
         private AdapterConfiguration configuration = new AdapterConfiguration();
+        private string storedApiKey = string.Empty;
+        private string storedLogin = string.Empty;
+        private string storedPassword = string.Empty;
+        private bool apiKeyEditing;
+        private bool apiKeyVisible;
+        private bool passwordEditing;
         private bool passwordVisible;
+        private bool loadingConfiguration;
 
         public SettingsForm(IntPtr ownerHandle)
         {
@@ -106,9 +124,10 @@ public static class WebkassaSettingsDialog
             Font = new Font("Segoe UI", 9F);
 
             authMode.DropDownStyle = ComboBoxStyle.DropDownList;
-            authMode.Items.Add(new ComboItem("API key + логин/пароль", AdapterAuthOptions.ApiKeyAndLoginPasswordMode));
-            authMode.Items.Add(new ComboItem("Только логин/пароль", AdapterAuthOptions.LoginPasswordOnlyMode));
-            authMode.SelectedIndexChanged += (_, _) => UpdateApiKeyState();
+            authMode.Items.Add(new ComboItem("Тестовый сервер: API key + логин/пароль", AdapterAuthOptions.ApiKeyAndLoginPasswordMode));
+            authMode.Items.Add(new ComboItem("Рабочий сервер: логин/пароль", AdapterAuthOptions.LoginPasswordOnlyMode));
+            authMode.SelectedIndexChanged += (_, _) => UpdateApiKeyState(!loadingConfiguration);
+            tooltips.SetToolTip(baseUrl, "Основной адрес подставляется по режиму. Резервные домены из AlternativeDomainNames обрабатываются автоматически при Code 505.");
 
             printingMode.DropDownStyle = ComboBoxStyle.DropDownList;
             printingMode.Items.Add(new ComboItem("Принтер iiko, затем Windows/PDF", AdapterPrintingOptions.IikoReceiptPrinterWithWindowsFallbackMode));
@@ -130,9 +149,7 @@ public static class WebkassaSettingsDialog
             foreach (string installedPrinter in PrinterSettings.InstalledPrinters)
                 printerName.Items.Add(installedPrinter);
 
-            apiKey.UseSystemPasswordChar = true;
-            password.UseSystemPasswordChar = true;
-            ConfigurePasswordRevealButton();
+            ConfigureSecretControls();
             nationalCatalogApiKey.UseSystemPasswordChar = true;
             nationalCatalogPassword.UseSystemPasswordChar = true;
             nationalCatalogEnabled.Text = "Включить интеграцию National Catalog";
@@ -169,29 +186,27 @@ public static class WebkassaSettingsDialog
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount = 15,
+                RowCount = 13,
                 Padding = new Padding(12),
             };
             webkassaLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 210));
             webkassaLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
             AddRow(webkassaLayout, 0, "Режим авторизации", authMode);
-            AddRow(webkassaLayout, 1, "Environment", environment);
-            AddRow(webkassaLayout, 2, "Base URL", baseUrl);
-            AddRow(webkassaLayout, 3, "Company profile", companyProfile);
-            AddRow(webkassaLayout, 4, "CashboxUniqueNumber", cashboxUniqueNumber);
-            AddRow(webkassaLayout, 5, "API key", apiKey);
-            AddRow(webkassaLayout, 6, "Login", login);
-            AddRow(webkassaLayout, 7, "Password", BuildPasswordRevealControl(password, passwordReveal));
-            AddRow(webkassaLayout, 8, "Режим печати", printingMode);
-            AddRow(webkassaLayout, 9, "Windows-принтер", printerName);
-            AddRow(webkassaLayout, 10, "PDF folder", pdfOutputDirectory);
-            AddRow(webkassaLayout, 11, "Формат чека", paperKind);
-            AddRow(webkassaLayout, 12, "Accept-Language", acceptLanguage);
-            AddRow(webkassaLayout, 13, "Хранить логи, дней", loggingRetentionDays);
+            AddRow(webkassaLayout, 1, "Base URL", baseUrl);
+            AddRow(webkassaLayout, 2, "CashboxUniqueNumber", cashboxUniqueNumber);
+            AddRow(webkassaLayout, 3, "API key", BuildSecretControl(apiKey, apiKeyStatus, apiKeyReveal, apiKeyEdit));
+            AddRow(webkassaLayout, 4, "Login", BuildLoginControl());
+            AddRow(webkassaLayout, 5, "Password", BuildSecretControl(password, passwordStatus, passwordReveal, passwordEdit));
+            AddRow(webkassaLayout, 6, "Режим печати", printingMode);
+            AddRow(webkassaLayout, 7, "Windows-принтер", printerName);
+            AddRow(webkassaLayout, 8, "PDF folder", pdfOutputDirectory);
+            AddRow(webkassaLayout, 9, "Формат чека", paperKind);
+            AddRow(webkassaLayout, 10, "Accept-Language", acceptLanguage);
+            AddRow(webkassaLayout, 11, "Хранить логи, дней", loggingRetentionDays);
             connectionStatus.Text = "Статус: не проверено";
             connectionStatus.TextAlign = ContentAlignment.MiddleLeft;
-            AddRow(webkassaLayout, 14, "Подключение", connectionStatus);
+            AddRow(webkassaLayout, 12, "Подключение", connectionStatus);
 
             var catalogLayout = new TableLayoutPanel
             {
@@ -290,7 +305,16 @@ public static class WebkassaSettingsDialog
             Controls.Add(rootLayout);
 
             Load += (_, _) => LoadConfiguration();
-            Shown += (_, _) => BringDialogToFront();
+            Shown += (_, _) =>
+            {
+                BringDialogToFront();
+                RefreshUpdateStatus();
+            };
+            FormClosed += (_, _) =>
+            {
+                apiKeyRevealTimer.Dispose();
+                passwordRevealTimer.Dispose();
+            };
         }
 
         private static void AddRow(TableLayoutPanel layout, int row, string label, Control control)
@@ -306,7 +330,38 @@ public static class WebkassaSettingsDialog
             layout.Controls.Add(control, 1, row);
         }
 
-        private Control BuildPasswordRevealControl(TextBox textBox, Button revealButton)
+        private Control BuildSecretControl(TextBox textBox, Label status, Button revealButton, Button editButton)
+        {
+            var panel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 4,
+                RowCount = 1,
+                Margin = new Padding(0),
+                Padding = new Padding(0),
+            };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82));
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            textBox.Dock = DockStyle.Fill;
+            status.Dock = DockStyle.Fill;
+            status.TextAlign = ContentAlignment.MiddleCenter;
+            revealButton.Dock = DockStyle.Fill;
+            editButton.Dock = DockStyle.Fill;
+            status.Margin = new Padding(4, 0, 0, 0);
+            revealButton.Margin = new Padding(4, 0, 0, 0);
+            editButton.Margin = new Padding(4, 0, 0, 0);
+            panel.Controls.Add(textBox, 0, 0);
+            panel.Controls.Add(status, 1, 0);
+            panel.Controls.Add(revealButton, 2, 0);
+            panel.Controls.Add(editButton, 3, 0);
+            return panel;
+        }
+
+        private Control BuildLoginControl()
         {
             var panel = new TableLayoutPanel
             {
@@ -317,76 +372,230 @@ public static class WebkassaSettingsDialog
                 Padding = new Padding(0),
             };
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 36));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
             panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-            textBox.Dock = DockStyle.Fill;
-            revealButton.Dock = DockStyle.Fill;
-            revealButton.Margin = new Padding(4, 0, 0, 0);
-            panel.Controls.Add(textBox, 0, 0);
-            panel.Controls.Add(revealButton, 1, 0);
+            login.Dock = DockStyle.Fill;
+            loginStatus.Dock = DockStyle.Fill;
+            loginStatus.TextAlign = ContentAlignment.MiddleCenter;
+            loginStatus.Margin = new Padding(4, 0, 0, 0);
+            panel.Controls.Add(login, 0, 0);
+            panel.Controls.Add(loginStatus, 1, 0);
             return panel;
         }
 
-        private void ConfigurePasswordRevealButton()
+        private void ConfigureSecretControls()
         {
-            passwordReveal.Text = string.Empty;
-            passwordReveal.TabStop = false;
-            passwordReveal.AccessibleName = "Показать пароль";
-            passwordReveal.AccessibleDescription = "Показать или скрыть введенный пароль Webkassa";
-            passwordReveal.FlatStyle = FlatStyle.Standard;
-            tooltips.SetToolTip(passwordReveal, "Показать пароль");
+            apiKey.AccessibleName = "Webkassa API key";
+            login.AccessibleName = "Webkassa Login";
+            password.AccessibleName = "Webkassa Password";
+            apiKey.ReadOnly = true;
+            password.ReadOnly = true;
+            apiKeyReveal.Text = "Показать";
+            apiKeyEdit.Text = "Изменить";
+            passwordReveal.Text = "Показать";
+            passwordEdit.Text = "Изменить";
+            apiKeyReveal.AccessibleDescription = "Показать API key Webkassa на 10 секунд";
+            passwordReveal.AccessibleDescription = "Показать пароль Webkassa на 10 секунд";
+            apiKeyEdit.AccessibleDescription = "Ввести новый API key Webkassa";
+            passwordEdit.AccessibleDescription = "Ввести новый пароль Webkassa";
+            tooltips.SetToolTip(apiKeyReveal, "Показать API key на 10 секунд");
+            tooltips.SetToolTip(passwordReveal, "Показать пароль на 10 секунд");
+            tooltips.SetToolTip(apiKeyEdit, "Изменить API key; пустое поле сохранит прежнее значение");
+            tooltips.SetToolTip(passwordEdit, "Изменить пароль; пустое поле сохранит прежнее значение");
+            apiKeyReveal.Click += (_, _) => ToggleApiKeyVisibility();
             passwordReveal.Click += (_, _) => TogglePasswordVisibility();
-            passwordReveal.Paint += DrawPasswordRevealIcon;
+            apiKeyEdit.Click += (_, _) => ToggleApiKeyEditing();
+            passwordEdit.Click += (_, _) => TogglePasswordEditing();
+            login.TextChanged += (_, _) => UpdateSecretStatuses();
+            apiKey.TextChanged += (_, _) => UpdateSecretStatuses();
+            password.TextChanged += (_, _) => UpdateSecretStatuses();
+            apiKeyRevealTimer.Interval = 10000;
+            passwordRevealTimer.Interval = 10000;
+            apiKeyRevealTimer.Tick += (_, _) => HideApiKey();
+            passwordRevealTimer.Tick += (_, _) => HidePassword();
+        }
+
+        private void ToggleApiKeyVisibility()
+        {
+            apiKeyVisible = !apiKeyVisible;
+            if (apiKeyEditing)
+                apiKey.UseSystemPasswordChar = !apiKeyVisible;
+            else
+                apiKey.Text = apiKeyVisible ? storedApiKey : MaskApiKey(storedApiKey);
+            apiKeyReveal.Text = apiKeyVisible ? "Скрыть" : "Показать";
+            apiKeyRevealTimer.Stop();
+            if (apiKeyVisible)
+                apiKeyRevealTimer.Start();
         }
 
         private void TogglePasswordVisibility()
         {
             passwordVisible = !passwordVisible;
-            password.UseSystemPasswordChar = !passwordVisible;
-            var caption = passwordVisible ? "Скрыть пароль" : "Показать пароль";
-            passwordReveal.AccessibleName = caption;
-            tooltips.SetToolTip(passwordReveal, caption);
-            passwordReveal.Invalidate();
-            password.Focus();
-            password.SelectionStart = password.TextLength;
+            if (passwordEditing)
+                password.UseSystemPasswordChar = !passwordVisible;
+            else
+                password.Text = passwordVisible ? storedPassword : MaskPassword(storedPassword);
+            passwordReveal.Text = passwordVisible ? "Скрыть" : "Показать";
+            passwordRevealTimer.Stop();
+            if (passwordVisible)
+                passwordRevealTimer.Start();
         }
 
-        private void DrawPasswordRevealIcon(object? sender, PaintEventArgs args)
+        private void ToggleApiKeyEditing()
         {
-            if (sender is not Button button)
-                return;
+            apiKeyEditing = !apiKeyEditing;
+            apiKeyRevealTimer.Stop();
+            apiKeyVisible = false;
+            apiKey.ReadOnly = !apiKeyEditing;
+            apiKey.UseSystemPasswordChar = apiKeyEditing;
+            apiKey.Text = apiKeyEditing ? string.Empty : MaskApiKey(storedApiKey);
+            apiKeyEdit.Text = apiKeyEditing ? "Отмена" : "Изменить";
+            apiKeyReveal.Text = "Показать";
+            apiKey.Focus();
+            UpdateSecretStatuses();
+        }
 
-            args.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            var color = button.Enabled ? SystemColors.ControlText : SystemColors.GrayText;
-            var width = button.ClientSize.Width;
-            var height = button.ClientSize.Height;
-            var centerY = height / 2;
-            var left = Math.Max(6, width / 2 - 10);
-            var right = Math.Min(width - 6, width / 2 + 10);
-            var centerX = width / 2;
+        private void TogglePasswordEditing()
+        {
+            passwordEditing = !passwordEditing;
+            passwordRevealTimer.Stop();
+            passwordVisible = false;
+            password.ReadOnly = !passwordEditing;
+            password.UseSystemPasswordChar = passwordEditing;
+            password.Text = passwordEditing ? string.Empty : MaskPassword(storedPassword);
+            passwordEdit.Text = passwordEditing ? "Отмена" : "Изменить";
+            passwordReveal.Text = "Показать";
+            password.Focus();
+            UpdateSecretStatuses();
+        }
 
-            using (var pen = new Pen(color, 1.6f))
-            using (var brush = new SolidBrush(color))
-            {
-                args.Graphics.DrawBezier(pen, new Point(left, centerY), new Point(left + 5, centerY - 8), new Point(right - 5, centerY - 8), new Point(right, centerY));
-                args.Graphics.DrawBezier(pen, new Point(left, centerY), new Point(left + 5, centerY + 8), new Point(right - 5, centerY + 8), new Point(right, centerY));
-                args.Graphics.FillEllipse(brush, centerX - 3, centerY - 3, 6, 6);
+        private void HideApiKey()
+        {
+            apiKeyRevealTimer.Stop();
+            apiKeyVisible = false;
+            apiKeyReveal.Text = "Показать";
+            if (apiKeyEditing)
+                apiKey.UseSystemPasswordChar = true;
+            else
+                apiKey.Text = MaskApiKey(storedApiKey);
+        }
 
-                if (!passwordVisible)
-                    args.Graphics.DrawLine(pen, left + 2, centerY + 9, right - 2, centerY - 9);
-            }
+        private void HidePassword()
+        {
+            passwordRevealTimer.Stop();
+            passwordVisible = false;
+            passwordReveal.Text = "Показать";
+            if (passwordEditing)
+                password.UseSystemPasswordChar = true;
+            else
+                password.Text = MaskPassword(storedPassword);
+        }
+
+        private void UpdateSecretStatuses()
+        {
+            var apiKeyRequired = SelectedValue(authMode) != AdapterAuthOptions.LoginPasswordOnlyMode;
+            if (!apiKeyRequired)
+                SetSecretStatus(apiKeyStatus, "Не требуется", SystemColors.GrayText);
+            else if (apiKeyEditing)
+                SetSecretStatus(apiKeyStatus, "Изменение", SystemColors.Highlight);
+            else
+                SetConfiguredStatus(apiKeyStatus, !string.IsNullOrWhiteSpace(storedApiKey));
+
+            SetConfiguredStatus(loginStatus, !string.IsNullOrWhiteSpace(login.Text) || !string.IsNullOrWhiteSpace(storedLogin));
+
+            if (passwordEditing)
+                SetSecretStatus(passwordStatus, "Изменение", SystemColors.Highlight);
+            else
+                SetConfiguredStatus(passwordStatus, !string.IsNullOrEmpty(storedPassword));
+
+            apiKeyReveal.Enabled = apiKeyRequired && (apiKeyEditing ? apiKey.TextLength > 0 : !string.IsNullOrWhiteSpace(storedApiKey));
+            passwordReveal.Enabled = passwordEditing ? password.TextLength > 0 : !string.IsNullOrEmpty(storedPassword);
+        }
+
+        private static void SetConfiguredStatus(Label status, bool configured)
+        {
+            SetSecretStatus(status, configured ? "Настроено" : "Не настроено", configured ? Color.DarkGreen : Color.DarkRed);
+        }
+
+        private static void SetSecretStatus(Label status, string text, Color color)
+        {
+            status.Text = text;
+            status.ForeColor = color;
+        }
+
+        private static string MaskApiKey(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return string.Empty;
+            if (value.Length <= 8)
+                return new string('•', value.Length);
+
+            return value.Substring(0, 4) + new string('•', Math.Min(12, value.Length - 8)) + value.Substring(value.Length - 4);
+        }
+
+        private static string MaskPassword(string value)
+        {
+            return string.IsNullOrEmpty(value) ? string.Empty : "••••••••••••";
+        }
+
+        private string ApiKeyValueForSave()
+        {
+            return apiKeyEditing ? apiKey.Text.Trim() : string.Empty;
+        }
+
+        private string LoginValueForSave()
+        {
+            var value = login.Text.Trim();
+            return string.Equals(value, storedLogin, StringComparison.Ordinal) ? string.Empty : value;
+        }
+
+        private string PasswordValueForSave()
+        {
+            return passwordEditing ? password.Text : string.Empty;
         }
 
         private Control BuildDeveloperFooter()
         {
-            var footer = new FlowLayoutPanel
+            var footer = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                FlowDirection = FlowDirection.RightToLeft,
-                WrapContents = false,
+                ColumnCount = 2,
+                RowCount = 1,
                 Margin = new Padding(0),
                 Padding = new Padding(0, 4, 0, 0),
+            };
+            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            footer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            var versionPanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Margin = new Padding(0),
+                Padding = new Padding(0),
+            };
+            currentVersionStatus.AutoSize = true;
+            currentVersionStatus.Text = $"Текущая версия: {ReleaseInfo.Version}";
+            currentVersionStatus.ForeColor = SystemColors.GrayText;
+            currentVersionStatus.Margin = new Padding(0, 2, 12, 0);
+            updateStatus.AutoSize = true;
+            updateStatus.Text = "Обновление: проверка...";
+            updateStatus.LinkBehavior = LinkBehavior.HoverUnderline;
+            updateStatus.Margin = new Padding(0, 1, 0, 0);
+            updateStatus.LinkClicked += (_, args) => OpenDeveloperSite(args.Link.LinkData as string);
+            versionPanel.Controls.Add(currentVersionStatus);
+            versionPanel.Controls.Add(updateStatus);
+
+            var developerPanel = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Margin = new Padding(0),
+                Padding = new Padding(0),
             };
 
             var link = new LinkLabel
@@ -408,9 +617,41 @@ public static class WebkassaSettingsDialog
                 Margin = new Padding(0, 2, 0, 0),
             };
 
-            footer.Controls.Add(link);
-            footer.Controls.Add(label);
+            developerPanel.Controls.Add(label);
+            developerPanel.Controls.Add(link);
+            footer.Controls.Add(versionPanel, 0, 0);
+            footer.Controls.Add(developerPanel, 1, 0);
             return footer;
+        }
+
+        private async void RefreshUpdateStatus()
+        {
+            var result = await UpdateAvailabilityChecker.CheckOnceAsync();
+            if (IsDisposed || Disposing)
+                return;
+
+            updateStatus.Links.Clear();
+            if (!result.CheckSucceeded)
+            {
+                updateStatus.Text = "Обновление: проверить не удалось";
+                updateStatus.ForeColor = SystemColors.GrayText;
+                tooltips.SetToolTip(updateStatus, result.Error);
+                return;
+            }
+
+            if (!result.UpdateAvailable)
+            {
+                updateStatus.Text = "Установлена актуальная версия";
+                updateStatus.ForeColor = Color.DarkGreen;
+                tooltips.SetToolTip(updateStatus, $"Последняя версия канала {ReleaseInfo.Channel}: {result.LatestVersion}");
+                return;
+            }
+
+            updateStatus.Text = $"Доступна новая версия: {result.LatestVersion}";
+            updateStatus.ForeColor = Color.DarkOrange;
+            tooltips.SetToolTip(updateStatus, "Открыть описание новой версии");
+            if (!string.IsNullOrWhiteSpace(result.ReleaseNotesUrl))
+                updateStatus.Links.Add(0, updateStatus.Text.Length, result.ReleaseNotesUrl);
         }
 
         private static void OpenDeveloperSite(string? url)
@@ -444,13 +685,26 @@ public static class WebkassaSettingsDialog
             }
 
             var provider = new DpapiFileSecretProvider(scope: DataProtectionScope.LocalMachine);
-            environment.Text = configuration.Environment;
-            baseUrl.Text = configuration.BaseUrl;
-            companyProfile.Text = configuration.CompanyProfile;
             cashboxUniqueNumber.Text = configuration.CashboxUniqueNumber;
-            apiKey.Text = string.Empty;
-            login.Text = string.Empty;
-            password.Text = string.Empty;
+            var secretRefs = configuration.SecretRefs ?? new AdapterSecretReferences();
+            storedApiKey = ResolveSecretBestEffort(provider, secretRefs.ApiKey, "api key");
+            storedLogin = ResolveSecretBestEffort(provider, secretRefs.Login, "login");
+            storedPassword = ResolveSecretBestEffort(provider, secretRefs.Password, "password");
+            apiKeyEditing = false;
+            passwordEditing = false;
+            apiKeyVisible = false;
+            passwordVisible = false;
+            apiKey.ReadOnly = true;
+            password.ReadOnly = true;
+            apiKey.UseSystemPasswordChar = false;
+            password.UseSystemPasswordChar = false;
+            apiKey.Text = MaskApiKey(storedApiKey);
+            login.Text = storedLogin;
+            password.Text = MaskPassword(storedPassword);
+            apiKeyEdit.Text = "Изменить";
+            passwordEdit.Text = "Изменить";
+            apiKeyReveal.Text = "Показать";
+            passwordReveal.Text = "Показать";
             pdfOutputDirectory.Text = (configuration.Printing ?? new AdapterPrintingOptions()).PdfOutputDirectory;
             acceptLanguage.Text = FirstNonEmpty((configuration.Printing ?? new AdapterPrintingOptions()).AcceptLanguage, "ru-RU");
             var logging = configuration.Logging ?? new AdapterLoggingOptions();
@@ -476,7 +730,10 @@ public static class WebkassaSettingsDialog
             nationalCatalogTreatGoodsWithoutBarcodeAsOwnProduction.Checked = autoFill.TreatGoodsWithoutBarcodeAsOwnProduction;
             nationalCatalogAutoPublication.Checked = autoFill.AutoPublication;
 
+            loadingConfiguration = true;
             SelectCombo(authMode, (configuration.Auth ?? new AdapterAuthOptions()).Mode);
+            baseUrl.Text = FirstNonEmpty(configuration.BaseUrl, BaseUrlForAuthMode(SelectedValue(authMode)));
+            loadingConfiguration = false;
             SelectCombo(printingMode, (configuration.Printing ?? new AdapterPrintingOptions()).Mode);
             SelectCombo(paperKind, (configuration.Printing ?? new AdapterPrintingOptions()).PaperKind.ToString());
             printerName.Text = FirstNonEmpty(
@@ -484,7 +741,8 @@ public static class WebkassaSettingsDialog
                 configuration.Printing?.FallbackWindowsPrinterName,
                 "Microsoft Print to PDF");
 
-            UpdateApiKeyState();
+            UpdateApiKeyState(false);
+            UpdateSecretStatuses();
         }
 
         private void Save()
@@ -493,24 +751,27 @@ public static class WebkassaSettingsDialog
             {
                 var mode = SelectedValue(authMode);
                 var cashbox = cashboxUniqueNumber.Text.Trim();
-                var env = string.IsNullOrWhiteSpace(environment.Text) ? "prod" : environment.Text.Trim();
+                var env = EnvironmentForAuthMode(mode);
                 var secretPrefix = $"Webkassa {env} {cashbox}";
                 var existingApiKeyRef = configuration.SecretRefs?.ApiKey ?? string.Empty;
                 var existingLoginRef = configuration.SecretRefs?.Login ?? string.Empty;
                 var existingPasswordRef = configuration.SecretRefs?.Password ?? string.Empty;
+                var apiKeyValue = ApiKeyValueForSave();
+                var loginValue = LoginValueForSave();
+                var passwordValue = PasswordValueForSave();
 
                 configuration.Environment = env;
                 configuration.BaseUrl = baseUrl.Text.Trim();
-                configuration.CompanyProfile = companyProfile.Text.Trim();
+                configuration.CompanyProfile = FirstNonEmpty(configuration.CompanyProfile, "default-company");
                 configuration.CashboxUniqueNumber = cashbox;
                 configuration.Auth = new AdapterAuthOptions { Mode = mode };
                 configuration.SecretRefs = new AdapterSecretReferences
                 {
                     ApiKey = mode == AdapterAuthOptions.LoginPasswordOnlyMode
-                        ? string.Empty
-                        : SecretRefForSave(existingApiKeyRef, $"{secretPrefix} api key", apiKey.Text),
-                    Login = SecretRefForSave(existingLoginRef, $"{secretPrefix} login", login.Text),
-                    Password = SecretRefForSave(existingPasswordRef, $"{secretPrefix} password", password.Text),
+                        ? existingApiKeyRef
+                        : SecretRefForSave(existingApiKeyRef, $"{secretPrefix} api key", apiKeyValue),
+                    Login = SecretRefForSave(existingLoginRef, $"{secretPrefix} login", loginValue),
+                    Password = SecretRefForSave(existingPasswordRef, $"{secretPrefix} password", passwordValue),
                 };
                 configuration.Printing = new AdapterPrintingOptions
                 {
@@ -547,22 +808,22 @@ public static class WebkassaSettingsDialog
                 var provider = new DpapiFileSecretProvider(scope: DataProtectionScope.LocalMachine);
                 if (configuration.Auth.RequiresApiKey())
                 {
-                    if (string.IsNullOrWhiteSpace(apiKey.Text) && string.IsNullOrWhiteSpace(existingApiKeyRef))
+                    if (string.IsNullOrWhiteSpace(apiKeyValue) && string.IsNullOrWhiteSpace(storedApiKey) && string.IsNullOrWhiteSpace(existingApiKeyRef))
                         throw new InvalidOperationException("API key is required for API key + login/password mode.");
                 }
                 if (configuration.NationalCatalog.Enabled && string.IsNullOrWhiteSpace(nationalCatalogApiKey.Text) && string.IsNullOrWhiteSpace(nationalCatalogExistingApiKeyRef))
                     throw new InvalidOperationException("National Catalog API key is required when National Catalog integration is enabled.");
-                if (string.IsNullOrWhiteSpace(password.Text) && string.IsNullOrWhiteSpace(existingPasswordRef))
+                if (string.IsNullOrEmpty(passwordValue) && string.IsNullOrEmpty(storedPassword) && string.IsNullOrWhiteSpace(existingPasswordRef))
                     throw new InvalidOperationException("Password is required.");
 
-                if (configuration.Auth.RequiresApiKey() && !string.IsNullOrWhiteSpace(apiKey.Text))
-                    provider.ProtectToFile(configuration.SecretRefs.ApiKey, apiKey.Text.Trim(), "api key");
-                if (!string.IsNullOrWhiteSpace(login.Text))
-                    provider.ProtectToFile(configuration.SecretRefs.Login, login.Text.Trim(), "login");
-                else if (string.IsNullOrWhiteSpace(existingLoginRef))
+                if (configuration.Auth.RequiresApiKey() && !string.IsNullOrWhiteSpace(apiKeyValue))
+                    provider.ProtectToFile(configuration.SecretRefs.ApiKey, apiKeyValue, "api key");
+                if (!string.IsNullOrWhiteSpace(loginValue))
+                    provider.ProtectToFile(configuration.SecretRefs.Login, loginValue, "login");
+                else if (string.IsNullOrWhiteSpace(storedLogin) && string.IsNullOrWhiteSpace(existingLoginRef))
                     throw new InvalidOperationException("Login is required.");
-                if (!string.IsNullOrEmpty(password.Text))
-                    provider.ProtectToFile(configuration.SecretRefs.Password, password.Text, "password");
+                if (!string.IsNullOrEmpty(passwordValue))
+                    provider.ProtectToFile(configuration.SecretRefs.Password, passwordValue, "password");
                 if (!string.IsNullOrWhiteSpace(nationalCatalogApiKey.Text))
                     provider.ProtectToFile(configuration.NationalCatalog.SecretRefs.ApiKey, nationalCatalogApiKey.Text.Trim(), "national catalog api key");
                 if (!string.IsNullOrWhiteSpace(nationalCatalogLogin.Text))
@@ -994,16 +1255,18 @@ public static class WebkassaSettingsDialog
             var existingPasswordRef = configuration.SecretRefs?.Password ?? string.Empty;
             var provider = new DpapiFileSecretProvider(scope: DataProtectionScope.LocalMachine);
             var resolvedApiKey = string.Empty;
-            var resolvedPassword = password.Text;
+            var resolvedPassword = passwordEditing && !string.IsNullOrEmpty(password.Text)
+                ? password.Text
+                : storedPassword;
             var resolvedLogin = string.IsNullOrWhiteSpace(login.Text)
-                ? ResolveSecretBestEffort(provider, existingLoginRef, "login")
+                ? FirstNonEmpty(storedLogin, ResolveSecretBestEffort(provider, existingLoginRef, "login"))
                 : login.Text.Trim();
 
             if (mode != AdapterAuthOptions.LoginPasswordOnlyMode)
             {
-                resolvedApiKey = string.IsNullOrWhiteSpace(apiKey.Text)
-                    ? ResolveSecretBestEffort(provider, existingApiKeyRef, "api key")
-                    : apiKey.Text.Trim();
+                resolvedApiKey = apiKeyEditing && !string.IsNullOrWhiteSpace(apiKey.Text)
+                    ? apiKey.Text.Trim()
+                    : FirstNonEmpty(storedApiKey, ResolveSecretBestEffort(provider, existingApiKeyRef, "api key"));
             }
 
             if (string.IsNullOrEmpty(resolvedPassword))
@@ -1058,9 +1321,32 @@ public static class WebkassaSettingsDialog
             };
         }
 
-        private void UpdateApiKeyState()
+        private void UpdateApiKeyState(bool applyDefaultBaseUrl)
         {
-            apiKey.Enabled = SelectedValue(authMode) != AdapterAuthOptions.LoginPasswordOnlyMode;
+            var mode = SelectedValue(authMode);
+            var enabled = mode != AdapterAuthOptions.LoginPasswordOnlyMode;
+            if (applyDefaultBaseUrl || string.IsNullOrWhiteSpace(baseUrl.Text))
+                baseUrl.Text = BaseUrlForAuthMode(mode);
+            apiKey.Enabled = enabled;
+            apiKeyReveal.Enabled = enabled && (apiKeyEditing ? apiKey.TextLength > 0 : !string.IsNullOrWhiteSpace(storedApiKey));
+            apiKeyEdit.Enabled = enabled;
+            if (!enabled && apiKeyEditing)
+                ToggleApiKeyEditing();
+            UpdateSecretStatuses();
+        }
+
+        private static string EnvironmentForAuthMode(string mode)
+        {
+            return mode == AdapterAuthOptions.LoginPasswordOnlyMode
+                ? ProductionEnvironment
+                : DevelopmentEnvironment;
+        }
+
+        private static string BaseUrlForAuthMode(string mode)
+        {
+            return mode == AdapterAuthOptions.LoginPasswordOnlyMode
+                ? ProductionBaseUrl
+                : DevelopmentBaseUrl;
         }
 
         private static void SelectCombo(ComboBox comboBox, string value)

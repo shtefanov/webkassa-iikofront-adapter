@@ -68,11 +68,16 @@ C# adapter config:
 "sidecar": {
   "enabled": true,
   "baseUrl": "http://127.0.0.1:17777",
-  "timeoutMs": 30000,
+  "timeoutMs": 240000,
   "healthPath": "/health",
   "authTokenSecretRef": "Webkassa sidecar authentication token"
 }
 ```
+
+The outer sidecar timeout must exceed `requestPolicy.timeoutMs`. A Webkassa
+deadline covers both response headers and body. When a fiscal response is lost,
+recovery remains inside the same cashbox queue task, so no report or second
+fiscal operation can overtake reconciliation.
 
 Sale request:
 

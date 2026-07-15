@@ -12,6 +12,13 @@ release package, then delegates installation to the existing terminal installer.
 The terminal installer places updater scripts under
 `C:\Program Files\WebkassaIikoFrontAdapter\updater`.
 
+The iikoFront plugin itself performs only a small availability check. Once per
+plugin process start it requests the manifest for its compiled channel in the
+background. If the manifest version is newer, iikoFront shows one non-modal
+notification. The settings footer also shows the current version and cached
+check result. The in-process check never downloads a package, stops iikoFront,
+or installs files.
+
 ## Release Channels
 
 Terminals must use one of two channels:
@@ -32,6 +39,13 @@ The public site should expose:
 https://iiko-plugin.kz/updates/webkassa/beta.json
 https://iiko-plugin.kz/updates/webkassa/stable.json
 ```
+
+`iiko-plugin.kz` is the canonical client-facing source. Do not query the GitHub
+API directly from every cash terminal: GitHub prerelease selection, rate limits,
+availability policies, and a second trusted download boundary make the client
+less predictable. GitHub may remain the source repository/release archive, but
+the website must validate and mirror an approved immutable package before it
+advances the manifest.
 
 Each manifest must include:
 
@@ -61,6 +75,11 @@ entry names. `-AllowDowngrade` is reserved for an explicitly approved rollback.
 
 Stable promotion is still blocked until detached/package signature verification
 uses an approved pinned public key.
+
+The startup availability check pins `iiko-plugin.kz`, rejects redirects, limits
+the response to 64 KiB, validates schema/project/channel/SemVer, and times out
+without affecting startup or fiscal operations. A missing or invalid manifest
+is logged but is not shown as an operator error.
 
 Examples live in:
 

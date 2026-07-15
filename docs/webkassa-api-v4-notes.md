@@ -14,6 +14,12 @@ Source: `https://documenter.getpostman.com/view/48749526/2sBXc8o3JF`
   hashes longer order/payment identifier combinations into a stable short id
   before persisting them in `IOperationDataContext`.
 - Store every successful sale fiscal response before attempting later returns.
+- Webkassa exposes no timeout request field. Enforce a client-side total
+  deadline, keep the cashbox queue locked through reconciliation, and do not
+  blindly replay a write after an unknown result.
+- Code `505` provides temporary alternative hosts through the HTTP response
+  header `AlternativeDomainNames`; preserve the path/body and try only the
+  bounded HTTPS hosts returned by Webkassa.
 
 ## Main Endpoints
 

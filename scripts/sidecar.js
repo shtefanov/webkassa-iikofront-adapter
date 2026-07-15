@@ -85,8 +85,23 @@ function loadConfig(configPath) {
   if (!config.requestPolicy || config.requestPolicy.serializePerCashbox !== true) {
     throw new Error('config.requestPolicy.serializePerCashbox must be true');
   }
+  if (config.requestPolicy.recoveryAttempts === undefined) config.requestPolicy.recoveryAttempts = 3;
+  if (config.requestPolicy.recoveryDelayMs === undefined) config.requestPolicy.recoveryDelayMs = 1000;
+  if (config.requestPolicy.maxAlternativeHosts === undefined) config.requestPolicy.maxAlternativeHosts = 3;
   if (Number(config.requestPolicy.maxRetries || 0) !== 0) {
     throw new Error('config.requestPolicy.maxRetries must be 0; blind fiscal retries are disabled');
+  }
+  if (!Number.isInteger(config.requestPolicy.timeoutMs) || config.requestPolicy.timeoutMs < 1000 || config.requestPolicy.timeoutMs > 120000) {
+    throw new Error('config.requestPolicy.timeoutMs must be an integer between 1000 and 120000');
+  }
+  if (!Number.isInteger(config.requestPolicy.recoveryAttempts) || config.requestPolicy.recoveryAttempts < 1 || config.requestPolicy.recoveryAttempts > 10) {
+    throw new Error('config.requestPolicy.recoveryAttempts must be an integer between 1 and 10');
+  }
+  if (!Number.isInteger(config.requestPolicy.recoveryDelayMs) || config.requestPolicy.recoveryDelayMs < 0 || config.requestPolicy.recoveryDelayMs > 10000) {
+    throw new Error('config.requestPolicy.recoveryDelayMs must be an integer between 0 and 10000');
+  }
+  if (!Number.isInteger(config.requestPolicy.maxAlternativeHosts) || config.requestPolicy.maxAlternativeHosts < 1 || config.requestPolicy.maxAlternativeHosts > 10) {
+    throw new Error('config.requestPolicy.maxAlternativeHosts must be an integer between 1 and 10');
   }
   if (config.storage && String(config.storage.provider || '').toLowerCase() !== 'json') {
     throw new Error('config.storage.provider must be json');
@@ -119,8 +134,21 @@ function assertOfficialWebkassaUrl(value, environment) {
   const expectedHost = String(environment).toLowerCase() === 'prod'
     ? 'kkm.webkassa.kz'
     : 'devkkm.webkassa.kz';
-  if (url.protocol !== 'https:' || url.hostname.toLowerCase() !== expectedHost) {
-    throw new Error(`config.baseUrl must use official Webkassa host ${expectedHost}`);
+  const oppositeHost = String(environment).toLowerCase() === 'prod'
+    ? 'devkkm.webkassa.kz'
+    : 'kkm.webkassa.kz';
+  const host = url.hostname.toLowerCase().replace(/\.$/, '');
+  const safeWebkassaOrigin = url.protocol === 'https:' &&
+    !url.username &&
+    !url.password &&
+    !url.port &&
+    (url.pathname === '/' || url.pathname === '') &&
+    !url.search &&
+    !url.hash &&
+    host.endsWith('.webkassa.kz') &&
+    (host === expectedHost || host !== oppositeHost);
+  if (!safeWebkassaOrigin) {
+    throw new Error(`config.baseUrl must use a safe Webkassa HTTPS origin for ${environment}`);
   }
 }
 
@@ -210,6 +238,7 @@ function createFiscalService(args) {
     baseUrl: config.baseUrl,
     apiKey: secrets.apiKey,
     timeoutMs: config.requestPolicy && config.requestPolicy.timeoutMs,
+    maxAlternativeHosts: config.requestPolicy && config.requestPolicy.maxAlternativeHosts,
   });
   const session = new WebkassaSession({
     client,
@@ -236,6 +265,8 @@ function createFiscalService(args) {
     companyId: config.companyProfile,
     cashboxUniqueNumber: cashbox.cashboxUniqueNumber,
     licenseWarningDays: config.licenseMonitoring && config.licenseMonitoring.warningDays,
+    recoveryAttempts: config.requestPolicy && config.requestPolicy.recoveryAttempts,
+    recoveryDelayMs: config.requestPolicy && config.requestPolicy.recoveryDelayMs,
     mappingDefaults: {
       defaultUnitCode: cashbox.defaultUnitCode,
       defaultRoundType: cashbox.defaultRoundType,
@@ -308,7 +339,7 @@ function startOfflineSyncLoop(fiscalService, intervalMs) {
     running = true;
     try {
       const results = await fiscalService.syncOfflineQueue();
-      const synced = results.filter((item) => item.status === 'synced').length;
+      const synced = results.filter((item) => item.status === 'synced' || item.status === 'recovered').length;
       const failed = results.filter((item) => item.status === 'failed').length;
       if (synced || failed) {
         console.log(`Webkassa offline sync completed: synced=${synced} failed=${failed}`);

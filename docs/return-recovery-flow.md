@@ -51,6 +51,10 @@ history newest-first (`Take <= 50`, bounded page count) and then retries lookup
 with the candidate shift. Recovery uses the same per-cashbox sequential queue
 as writes and reports.
 
+The queue stays locked for the complete bounded recovery sequence. It is not
+released between the timed-out write and `ExternalCheckNumber` lookup, so an X/Z
+report or another fiscal write cannot be sent first.
+
 `Check/History` parsing is covered for both shapes observed or expected from
 Webkassa-style APIs:
 
@@ -75,6 +79,19 @@ Not safe to retry blindly:
 - sale with a new `ExternalCheckNumber`;
 - return with a new `ExternalCheckNumber`;
 - any fiscal write after network timeout without recovery lookup.
+
+## Request Deadline And Code 505
+
+Webkassa does not define a request-body timeout parameter. The adapter enforces
+a client-side total deadline covering connection, response headers, and response
+body. A primary-host timeout goes directly to recovery and is never retried
+blindly.
+
+If Webkassa returns application error Code `505`, the adapter reads the
+`AlternativeDomainNames` HTTP response header and may repeat the identical
+request against those domains in order. The list is bounded and filtered to
+safe HTTPS public DNS origins. A timeout does not invent or discover alternative
+hosts; only Webkassa's authenticated response can start this failover flow.
 
 ## Current Code
 

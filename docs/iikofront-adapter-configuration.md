@@ -82,12 +82,15 @@ The default path is intended for terminal-local adapter configuration.
   "sidecar": {
     "enabled": true,
     "baseUrl": "http://127.0.0.1:17777",
-    "timeoutMs": 30000,
+    "timeoutMs": 240000,
     "healthPath": "/health",
     "authTokenSecretRef": "Webkassa dev SWK00035753 sidecar authentication token"
   },
   "requestPolicy": {
     "timeoutMs": 30000,
+    "recoveryAttempts": 3,
+    "recoveryDelayMs": 1000,
+    "maxAlternativeHosts": 3,
     "maxRetries": 0,
     "retryOnlyWithExternalCheckNumber": true,
     "serializePerCashbox": true
@@ -115,14 +118,28 @@ retry reuses the id persisted in `IOperationDataContext`. The adapter does not
 perform a blind network retry that could race a delayed fiscal response. The
 one token refresh after an authorization error is a separate operation.
 
+`requestPolicy.timeoutMs` is the total deadline for one Webkassa HTTP request,
+including reading the response body. `recoveryAttempts` and `recoveryDelayMs`
+bound lost-response polling by the same `ExternalCheckNumber` while the
+per-cashbox queue remains locked. `maxAlternativeHosts` bounds the official
+Code 505 failover flow using only HTTPS host names received in Webkassa's
+`AlternativeDomainNames` response header.
+
+`sidecar.timeoutMs` is deliberately larger than a single Webkassa request. It
+is the outer iikoFront-to-sidecar deadline and must leave enough time for the
+initial request plus reconciliation. Legacy configurations where both values
+were 30000 ms are normalized in memory to a 240000 ms sidecar timeout.
+
 ## Secret Provider Boundary
 
 Configuration stores only SecretRef labels. Webkassa API key/login/password are
 resolved by the Windows sidecar service from LocalMachine DPAPI files; they are
-not restored into the iikoFront settings UI. The sidecar bearer token uses a
-separate DPAPI `secrets\ipc` directory so the iikoFront identity receives only
-read access to that one IPC credential. Raw secret values do not belong in JSON,
-logs, support bundles, Archive, or release artifacts.
+also resolved by the elevated settings utility when an administrator opens the
+Webkassa settings window. The login is shown directly; API key and password are
+masked unless the administrator explicitly reveals them. The sidecar bearer
+token uses a separate DPAPI `secrets\ipc` directory so the iikoFront identity
+receives only read access to that one IPC credential. Raw secret values do not
+belong in JSON, logs, support bundles, Archive, or release artifacts.
 
 ## Log Retention
 
@@ -237,8 +254,25 @@ token stored with DPAPI in the separate `secrets\\ipc` directory. The iikoFront
 account receives read-only access only to that IPC token; Webkassa API
 credentials and fiscal-result files remain service/admin-only.
 
-`baseUrl` is restricted to `https://devkkm.webkassa.kz` for development and
-`https://kkm.webkassa.kz` for production.
+The settings UI defaults `baseUrl` to `https://devkkm.webkassa.kz` for
+development and `https://kkm.webkassa.kz` for production. An operator may edit
+the primary URL, but validation accepts only a safe HTTPS `*.webkassa.kz`
+origin without credentials, custom port, path, query, or fragment. The primary
+host of the opposite environment is rejected.
+
+## Version and update status
+
+The settings footer displays `Текущая версия: <version>`. It also shows the
+result of the one-per-process background check against the compiled release
+channel manifest at `iiko-plugin.kz`:
+
+- `Установлена актуальная версия`;
+- `Доступна новая версия: <version>` with a link to release notes;
+- `Обновление: проверить не удалось` when the network or manifest is invalid.
+
+At iikoFront startup a newer version produces one native non-modal iikoFront
+notification. The plugin does not download or install updates. Privileged
+installation remains the responsibility of the separate Windows updater.
 
 ## Receipt Print Format
 
@@ -269,6 +303,32 @@ the default `Microsoft Print to PDF` fallback:
 
 The fallback does not call Webkassa again and does not submit duplicate fiscal
 operations.
+
+## Closed and past order fiscal receipt actions
+
+The adapter exposes two read-only actions for an already fiscalized order:
+
+- `Печать фискального чека` prints the selected existing Webkassa receipt through
+  `/api/v4/Ticket/PrintFormat`;
+- `QR фискального чека` shows the Webkassa external receipt-view URL as a QR code
+  and lets the operator copy or explicitly open the HTTPS link.
+
+Successful manual printing returns immediately to the order screen and writes
+the result to the plugin log; it does not show a modal confirmation popup.
+Errors remain visible to the operator through the iikoFront error popup.
+
+iikoFront has two different API surfaces for the visually similar order
+history screens. The adapter registers both actions through both official V9
+methods:
+
+- `AddButtonToClosedOrderScreen` for locally closed/current-session orders;
+- `AddButtonToPastOrderScreen` for server-side past orders, including orders
+  from an earlier cash session.
+
+Both paths use the original iiko order GUID and the sidecar read-only endpoint
+`POST /tickets/by-order`. They never call sale/return fiscalization. When an
+older stored record has no `ticketUrl`, the QR action falls back to the first
+safe HTTPS QR line returned by the official `Ticket/PrintFormat` response.
 
 `fiscalization.writeFiscalData` is the explicit equivalent of the Webkassa Print
 Module setting `Fiscalization.WriteFiscalData`.
@@ -366,8 +426,7 @@ plugins menu. Starting with `0.11.17-beta`, the dialog is opened as an owned
 modal window over the active iikoFront window, and its success/error popups use
 the settings dialog as their owner. The screen edits:
 
-- auth mode;
-- environment and base URL;
+- auth mode and its automatically selected, editable primary Base URL;
 - `cashboxUniqueNumber`;
 - API key, login, and password;
 - paper receipt printing mode, Windows printer, PDF output directory,
@@ -375,16 +434,38 @@ the settings dialog as their owner. The screen edits:
 
 The dialog opens only in an elevated Windows administrator session. The dialog
 saves raw credential values only into DPAPI LocalMachine protected files.
-Existing API key, login, password, and National Catalog credentials are never
-loaded back into UI controls; leaving fields empty keeps the previous protected
-secret.
+For the Webkassa credentials, the login is displayed in full, API key is masked
+with a short prefix/suffix, and password is represented by a fixed bullet mask.
+Each field reports `Настроено` or `Не настроено`. API key and password have
+explicit `Показать` and `Изменить` controls; revealed values are hidden again
+after 10 seconds. An empty replacement field keeps the previous protected
+secret. National Catalog credentials remain write-only UI fields.
+
+The Webkassa environment and endpoint are derived from the selected auth mode:
+
+- `API key + login/password` selects `dev` and defaults to
+  `https://devkkm.webkassa.kz`;
+- `login/password` selects `prod` and defaults to `https://kkm.webkassa.kz`.
+
+Changing the auth mode replaces the Base URL with that mode's default; it can
+then be edited. Webkassa reserve domains are not maintained as a manual list.
+Under the official Code `505` flow, the adapter reads `AlternativeDomainNames`
+from Webkassa's response and automatically tries up to three validated HTTPS
+alternatives.
+
+`environment` remains in the configuration because it separates development
+and production fiscal records. `companyProfile` remains an internal storage
+namespace, but neither value is exposed as an operator-editable field. Saving
+preserves the existing non-empty `companyProfile`; legacy empty values are
+normalized to `default-company`.
 
 The dialog also has a `Тест` button. It uses the values currently entered in
 the form, calls Webkassa `/api/v4/Authorize`, then validates the entered
 `cashboxUniqueNumber` with `/api-portal/v4/cashbox/client-info`. On success it
 shows connected/OK status. On failure it shows the available stage, code, and
 message. If API key or password fields are empty, the test reuses the existing
-DPAPI-protected values when they already exist.
+DPAPI-protected values when they already exist; masked display text is never
+sent as a credential.
 
 ## Validation
 

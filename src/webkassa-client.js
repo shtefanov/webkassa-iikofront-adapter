@@ -5,6 +5,7 @@ const {
   normalizeTicketLookupResponse,
 } = require('./webkassa-normalizers');
 const { normalizeWebkassaCode } = require('./webkassa-error-catalog');
+const { isIP } = require('net');
 
 class WebkassaClient {
   constructor(options) {
@@ -13,6 +14,7 @@ class WebkassaClient {
     this.apiKey = options.apiKey || null;
     this.fetchImpl = options.fetchImpl || fetch;
     this.timeoutMs = normalizeTimeout(options.timeoutMs);
+    this.maxAlternativeHosts = normalizeAlternativeHostLimit(options.maxAlternativeHosts);
   }
 
   async authorize(credentials) {
@@ -138,36 +140,81 @@ class WebkassaClient {
     };
     if (this.apiKey) headers['x-api-key'] = this.apiKey;
 
+    const origins = [this.baseUrl];
+    const attempted = new Set();
+    const alternativeOrigins = new Set();
+    let alternativeFailoverStarted = false;
+    let lastError = null;
+
+    while (origins.length > 0) {
+      const origin = origins.shift();
+      if (attempted.has(origin)) continue;
+      attempted.add(origin);
+
+      try {
+        return await this.requestOnce(origin, pathname, body, headers);
+      } catch (error) {
+        lastError = error;
+        if (error instanceof WebkassaApiError && error.webkassaCode === '505') {
+          alternativeFailoverStarted = true;
+          for (const alternative of error.alternativeBaseUrls) {
+            if (
+              !attempted.has(alternative) &&
+              !alternativeOrigins.has(alternative) &&
+              alternativeOrigins.size < this.maxAlternativeHosts
+            ) {
+              alternativeOrigins.add(alternative);
+              origins.push(alternative);
+            }
+          }
+          if (origins.length > 0) continue;
+        }
+
+        // The official Code 505 flow explicitly permits trying the next domain
+        // returned by Webkassa when the current alternative does not answer.
+        // A timeout on the primary host never enables a blind retry.
+        if (alternativeFailoverStarted && isNetworkOrTimeoutError(error) && origins.length > 0) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw lastError || new Error(`${pathname} request failed without a response`);
+  }
+
+  async requestOnce(origin, pathname, body, headers) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-    let response;
+    let phase = 'awaiting_headers';
     try {
-      response = await this.fetchImpl(`${this.baseUrl}${pathname}`, {
+      const response = await this.fetchImpl(`${origin}${pathname}`, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
         signal: controller.signal,
       });
+      phase = 'reading_body';
+      const text = await response.text();
+      const parsed = parseJson(text);
+      const result = {
+        status: response.status,
+        ok: response.ok,
+        body: parsed,
+        origin,
+        alternativeDomainNames: responseHeader(response, 'AlternativeDomainNames'),
+      };
+
+      assertOk(pathname, result);
+      return result;
     } catch (error) {
-      if (controller.signal.aborted) {
-        const timeoutError = new Error(`${pathname} timeout after ${this.timeoutMs} ms`);
-        timeoutError.cause = error;
-        throw timeoutError;
+      if (controller.signal.aborted && !(error instanceof WebkassaApiError)) {
+        throw new WebkassaTimeoutError(pathname, this.timeoutMs, phase, origin, error);
       }
       throw error;
     } finally {
       clearTimeout(timeout);
     }
-    const text = await response.text();
-    const parsed = parseJson(text);
-    const result = {
-      status: response.status,
-      ok: response.ok,
-      body: parsed,
-    };
-
-    assertOk(pathname, result);
-    return result;
   }
 }
 
@@ -195,6 +242,7 @@ function assertOk(label, response) {
       endpoint: label,
       httpStatus: response.status,
       errors: Array.isArray(errors) ? errors : [],
+      alternativeDomainNames: response.alternativeDomainNames,
     });
   }
   if (Array.isArray(errors) && errors.length > 0 && !duplicateWithFiscalData) {
@@ -202,6 +250,7 @@ function assertOk(label, response) {
       endpoint: label,
       httpStatus: response.status,
       errors,
+      alternativeDomainNames: response.alternativeDomainNames,
     });
   }
 }
@@ -213,6 +262,71 @@ function isDuplicateError(error) {
 function normalizeTimeout(value) {
   const number = Number(value);
   return Number.isInteger(number) && number >= 1000 && number <= 120000 ? number : 25000;
+}
+
+function normalizeAlternativeHostLimit(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 1 && number <= 10 ? number : 3;
+}
+
+function responseHeader(response, name) {
+  if (!response || !response.headers) return '';
+  if (typeof response.headers.get === 'function') {
+    return String(response.headers.get(name) || '');
+  }
+  const expected = String(name).toLowerCase();
+  for (const [key, value] of Object.entries(response.headers)) {
+    if (String(key).toLowerCase() === expected) return String(value || '');
+  }
+  return '';
+}
+
+function parseAlternativeBaseUrls(value) {
+  const results = [];
+  for (const part of String(value || '').split(',')) {
+    const candidate = part.trim();
+    if (!candidate) continue;
+    let url;
+    try {
+      url = new URL(candidate.includes('://') ? candidate : `https://${candidate}`);
+    } catch (error) {
+      continue;
+    }
+    const hostname = url.hostname.toLowerCase();
+    if (
+      url.protocol !== 'https:' ||
+      url.username ||
+      url.password ||
+      url.port ||
+      (url.pathname && url.pathname !== '/') ||
+      url.search ||
+      url.hash ||
+      !isPublicDnsHostname(hostname)
+    ) {
+      continue;
+    }
+    const origin = `https://${hostname}`;
+    if (!results.includes(origin)) results.push(origin);
+  }
+  return results;
+}
+
+function isPublicDnsHostname(hostname) {
+  if (!hostname || isIP(hostname) !== 0) return false;
+  if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local')) return false;
+  if (hostname.length > 253 || !hostname.includes('.')) return false;
+  return hostname.split('.').every((label) => (
+    label.length >= 1 &&
+    label.length <= 63 &&
+    /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label)
+  ));
+}
+
+function isNetworkOrTimeoutError(error) {
+  if (error instanceof WebkassaTimeoutError) return true;
+  const message = String(error && error.message || error || '').toLowerCase();
+  return ['network', 'econnreset', 'econnrefused', 'enotfound', 'etimedout', 'eai_again', 'socket', 'fetch failed']
+    .some((token) => message.includes(token));
 }
 
 function normalizeSkip(value) {
@@ -251,10 +365,27 @@ class WebkassaApiError extends Error {
     const first = this.webkassaErrors[0] || null;
     this.webkassaCode = first ? normalizeWebkassaCode(first.Code ?? first.ErrorCode ?? first.code ?? first.errorCode) : null;
     this.webkassaText = first ? first.Text || first.Message || first.text || first.message || null : null;
+    this.alternativeDomainNames = details.alternativeDomainNames || '';
+    this.alternativeBaseUrls = parseAlternativeBaseUrls(this.alternativeDomainNames);
+  }
+}
+
+class WebkassaTimeoutError extends Error {
+  constructor(endpoint, timeoutMs, phase, origin, cause) {
+    super(`${endpoint} timeout after ${timeoutMs} ms (${phase})`);
+    this.name = 'WebkassaTimeoutError';
+    this.code = 'WEBKASSA_TIMEOUT';
+    this.endpoint = endpoint;
+    this.timeoutMs = timeoutMs;
+    this.phase = phase;
+    this.origin = origin;
+    this.cause = cause;
   }
 }
 
 module.exports = {
   WebkassaClient,
   WebkassaApiError,
+  WebkassaTimeoutError,
+  parseAlternativeBaseUrls,
 };

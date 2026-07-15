@@ -1,6 +1,6 @@
 {
   "name": "webkassa-integration",
-  "version": "0.11.50-beta",
+  "version": "0.11.52-beta",
   "private": true,
   "description": "Webkassa fiscal integration planning, fixtures, and contract tests.",
   "scripts": {

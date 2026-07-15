@@ -18,6 +18,9 @@
   "requestPolicy": {
     "serializePerCashbox": true,
     "timeoutMs": 30000,
+    "recoveryAttempts": 3,
+    "recoveryDelayMs": 1000,
+    "maxAlternativeHosts": 3,
     "maxRetries": 0,
     "retryOnlyWithExternalCheckNumber": true
   },

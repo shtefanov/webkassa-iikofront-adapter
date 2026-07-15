@@ -82,6 +82,15 @@ public sealed class AdapterConfiguration
         Logging ??= new AdapterLoggingOptions();
         LicenseMonitoring ??= new AdapterLicenseMonitoringOptions();
 
+        if (RequestPolicy.RecoveryAttempts <= 0)
+            RequestPolicy.RecoveryAttempts = 3;
+        if (RequestPolicy.RecoveryDelayMs < 0)
+            RequestPolicy.RecoveryDelayMs = 1000;
+        if (RequestPolicy.MaxAlternativeHosts <= 0)
+            RequestPolicy.MaxAlternativeHosts = 3;
+        if (Sidecar.TimeoutMs <= RequestPolicy.TimeoutMs)
+            Sidecar.TimeoutMs = Math.Max(240000, RequestPolicy.TimeoutMs + 60000);
+
         if (Logging.RetentionDays <= 0)
             Logging.RetentionDays = 30;
         if (LicenseMonitoring.WarningDays <= 0)
@@ -118,7 +127,7 @@ public sealed class AdapterConfiguration
         if (string.IsNullOrWhiteSpace(BaseUrl))
             errors.Add("baseUrl is required.");
         else if (!IsOfficialWebkassaUrl(BaseUrl, Environment))
-            errors.Add("baseUrl must be the official Webkassa production or development HTTPS endpoint for the configured environment.");
+            errors.Add("baseUrl must be an HTTPS Webkassa host without credentials, custom port, path, query, or fragment.");
 
         if (string.IsNullOrWhiteSpace(CashboxUniqueNumber))
             errors.Add("cashboxUniqueNumber is required.");
@@ -153,8 +162,17 @@ public sealed class AdapterConfiguration
                 errors.Add("printing.paperKind must be 0, 3, 12, or 13.");
         }
 
-        if (RequestPolicy.TimeoutMs <= 0)
-            errors.Add("requestPolicy.timeoutMs must be greater than zero.");
+        if (RequestPolicy.TimeoutMs < 1000 || RequestPolicy.TimeoutMs > 120000)
+            errors.Add("requestPolicy.timeoutMs must be between 1000 and 120000 milliseconds.");
+
+        if (RequestPolicy.RecoveryAttempts < 1 || RequestPolicy.RecoveryAttempts > 10)
+            errors.Add("requestPolicy.recoveryAttempts must be between 1 and 10.");
+
+        if (RequestPolicy.RecoveryDelayMs < 0 || RequestPolicy.RecoveryDelayMs > 10000)
+            errors.Add("requestPolicy.recoveryDelayMs must be between 0 and 10000 milliseconds.");
+
+        if (RequestPolicy.MaxAlternativeHosts < 1 || RequestPolicy.MaxAlternativeHosts > 10)
+            errors.Add("requestPolicy.maxAlternativeHosts must be between 1 and 10.");
 
         if (RequestPolicy.MaxRetries != 0)
             errors.Add("requestPolicy.maxRetries must be 0; the current release uses recovery and caller retry with the same ExternalCheckNumber instead of blind network retries.");
@@ -220,6 +238,8 @@ public sealed class AdapterConfiguration
                 errors.Add("sidecar.baseUrl is required.");
             if (Sidecar.TimeoutMs <= 0)
                 errors.Add("sidecar.timeoutMs must be greater than zero.");
+            else if (Sidecar.TimeoutMs <= RequestPolicy.TimeoutMs)
+                errors.Add("sidecar.timeoutMs must be greater than requestPolicy.timeoutMs so sidecar recovery can finish before iikoFront stops waiting.");
             if (string.IsNullOrWhiteSpace(Sidecar.AuthTokenSecretRef))
                 errors.Add("sidecar.authTokenSecretRef is required.");
             if (!IsLoopbackSidecarUrl(Sidecar.BaseUrl))
@@ -255,10 +275,23 @@ public sealed class AdapterConfiguration
     {
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
             return false;
+        if (!uri.IsDefaultPort || !string.IsNullOrEmpty(uri.UserInfo) ||
+            (!string.IsNullOrEmpty(uri.AbsolutePath) && uri.AbsolutePath != "/") ||
+            !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment))
+            return false;
+
+        var host = uri.Host.TrimEnd('.');
+        if (!host.EndsWith(".webkassa.kz", StringComparison.OrdinalIgnoreCase))
+            return false;
+
         var expectedHost = string.Equals(environment, "prod", StringComparison.OrdinalIgnoreCase)
             ? "kkm.webkassa.kz"
             : "devkkm.webkassa.kz";
-        return string.Equals(uri.Host, expectedHost, StringComparison.OrdinalIgnoreCase);
+        var oppositeHost = string.Equals(environment, "prod", StringComparison.OrdinalIgnoreCase)
+            ? "devkkm.webkassa.kz"
+            : "kkm.webkassa.kz";
+        return string.Equals(host, expectedHost, StringComparison.OrdinalIgnoreCase) ||
+               !string.Equals(host, oppositeHost, StringComparison.OrdinalIgnoreCase);
     }
 }
 
@@ -528,7 +561,7 @@ public sealed class AdapterSidecarOptions
     public string BaseUrl { get; set; } = "http://127.0.0.1:17777";
 
     [DataMember(Name = "timeoutMs")]
-    public int TimeoutMs { get; set; } = 30000;
+    public int TimeoutMs { get; set; } = 240000;
 
     [DataMember(Name = "healthPath")]
     public string HealthPath { get; set; } = "/health";
@@ -542,6 +575,15 @@ public sealed class AdapterRequestPolicy
 {
     [DataMember(Name = "timeoutMs")]
     public int TimeoutMs { get; set; } = 30000;
+
+    [DataMember(Name = "recoveryAttempts")]
+    public int RecoveryAttempts { get; set; } = 3;
+
+    [DataMember(Name = "recoveryDelayMs")]
+    public int RecoveryDelayMs { get; set; } = 1000;
+
+    [DataMember(Name = "maxAlternativeHosts")]
+    public int MaxAlternativeHosts { get; set; } = 3;
 
     [DataMember(Name = "maxRetries")]
     public int MaxRetries { get; set; }

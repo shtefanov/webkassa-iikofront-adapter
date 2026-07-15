@@ -34,50 +34,49 @@ class FiscalService {
     this.mappingDefaults = options.mappingDefaults || {};
     this.offlineQueue = options.offlineQueue || null;
     this.licenseWarningDays = normalizeWarningDays(options.licenseWarningDays || 7);
+    this.recoveryAttempts = normalizeRecoveryAttempts(options.recoveryAttempts);
+    this.recoveryDelayMs = normalizeRecoveryDelay(options.recoveryDelayMs);
+    this.sleep = options.sleep || delay;
   }
 
   async fiscalizeSaleDraft(draft, runtime = {}) {
     const payload = mapIikoSaleDraftToWebkassaPayload(draft, this.mappingOptions(runtime));
-    try {
-      payload.Token = await this.resolveToken(runtime);
-    } catch (error) {
-      const queued = this.tryQueueOfflineSale(draft, payload, runtime, error);
-      if (queued) return queued;
-      throw error;
-    }
     const existing = this.store.findByExternalCheckNumber(payload.ExternalCheckNumber);
     if (existing) return { status: 'already_fiscalized', record: existing, payload };
 
-    const run = this.queue.enqueue(this.cashboxUniqueNumber, async () => {
+    return this.queue.enqueue(this.cashboxUniqueNumber, async () => {
       const racedExisting = this.store.findByExternalCheckNumber(payload.ExternalCheckNumber);
       if (racedExisting) return { status: 'already_fiscalized', record: racedExisting, payload };
 
-      const result = await this.checkWithAuthRefresh(payload, runtime);
-      const record = this.store.upsertSale({
-        environment: this.environment,
-        companyId: this.companyId,
-        cashboxUniqueNumber: this.cashboxUniqueNumber,
-        externalCheckNumber: payload.ExternalCheckNumber,
-        iiko: iikoContextFromDraft(draft),
-        fiscal: result.fiscal,
-        requestPayload: redactPayload(payload),
-        responseSummary: result.fiscal,
-      });
-
-      return { status: 'fiscalized', record, payload };
-    });
-
-    return run.catch(async (error) => {
-      let recoveryError = null;
       try {
-        const recovered = await this.tryRecoverSale(draft, payload, runtime, error);
-        if (recovered) return recovered;
-      } catch (caught) {
-        recoveryError = caught;
+        payload.Token = await this.resolveToken(runtime);
+        const result = await this.checkWithAuthRefresh(payload, runtime);
+        const record = this.store.upsertSale({
+          environment: this.environment,
+          companyId: this.companyId,
+          cashboxUniqueNumber: this.cashboxUniqueNumber,
+          externalCheckNumber: payload.ExternalCheckNumber,
+          iiko: iikoContextFromDraft(draft),
+          fiscal: result.fiscal,
+          requestPayload: redactPayload(payload),
+          responseSummary: result.fiscal,
+        });
+
+        return { status: 'fiscalized', record, payload };
+      } catch (error) {
+        let recoveryError = null;
+        try {
+          const recovered = await this.tryRecoverSale(draft, payload, runtime, error);
+          if (recovered) return recovered;
+        } catch (caught) {
+          recoveryError = caught;
+        }
+
+        const effectiveError = recoveryError || error;
+        const queued = this.tryQueueOfflineSale(draft, payload, runtime, effectiveError);
+        if (queued) return queued;
+        throw attachOperatorDiagnostic(effectiveError, draft, payload);
       }
-      const queued = this.tryQueueOfflineSale(draft, payload, runtime, recoveryError || error);
-      if (queued) return queued;
-      throw attachOperatorDiagnostic(recoveryError || error, draft, payload);
     });
   }
 
@@ -87,48 +86,44 @@ class FiscalService {
     const existingReturn = this.findExistingReturn(draft, originalSale, payload);
     if (existingReturn) return { status: 'already_fiscalized', record: existingReturn, payload };
 
-    try {
-      payload.Token = await this.resolveToken(runtime);
-    } catch (error) {
-      const queued = this.tryQueueOfflineReturn(draft, payload, originalSale, runtime, error);
-      if (queued) return queued;
-      throw error;
-    }
     const existing = this.store.findByExternalCheckNumber(payload.ExternalCheckNumber);
     if (existing) return { status: 'already_fiscalized', record: existing, payload };
 
-    const run = this.queue.enqueue(this.cashboxUniqueNumber, async () => {
+    return this.queue.enqueue(this.cashboxUniqueNumber, async () => {
       const racedExisting = this.findExistingReturn(draft, originalSale, payload);
       if (racedExisting) return { status: 'already_fiscalized', record: racedExisting, payload };
 
-      const result = await this.checkWithAuthRefresh(payload, runtime);
-      const record = this.store.upsertReturn({
-        environment: this.environment,
-        companyId: this.companyId,
-        cashboxUniqueNumber: this.cashboxUniqueNumber,
-        externalCheckNumber: payload.ExternalCheckNumber,
-        originalSaleExternalCheckNumber: originalSale.externalCheckNumber,
-        returnBasisDetails: payload.returnBasisDetails,
-        iiko: iikoContextFromDraft(draft),
-        fiscal: result.fiscal,
-        requestPayload: redactPayload(payload),
-        responseSummary: result.fiscal,
-      });
-
-      return { status: 'fiscalized', record, payload };
-    });
-
-    return run.catch(async (error) => {
-      let recoveryError = null;
       try {
-        const recovered = await this.tryRecoverReturn(draft, payload, originalSale, runtime, error);
-        if (recovered) return recovered;
-      } catch (caught) {
-        recoveryError = caught;
+        payload.Token = await this.resolveToken(runtime);
+        const result = await this.checkWithAuthRefresh(payload, runtime);
+        const record = this.store.upsertReturn({
+          environment: this.environment,
+          companyId: this.companyId,
+          cashboxUniqueNumber: this.cashboxUniqueNumber,
+          externalCheckNumber: payload.ExternalCheckNumber,
+          originalSaleExternalCheckNumber: originalSale.externalCheckNumber,
+          returnBasisDetails: payload.returnBasisDetails,
+          iiko: iikoContextFromDraft(draft),
+          fiscal: result.fiscal,
+          requestPayload: redactPayload(payload),
+          responseSummary: result.fiscal,
+        });
+
+        return { status: 'fiscalized', record, payload };
+      } catch (error) {
+        let recoveryError = null;
+        try {
+          const recovered = await this.tryRecoverReturn(draft, payload, originalSale, runtime, error);
+          if (recovered) return recovered;
+        } catch (caught) {
+          recoveryError = caught;
+        }
+
+        const effectiveError = recoveryError || error;
+        const queued = this.tryQueueOfflineReturn(draft, payload, originalSale, runtime, effectiveError);
+        if (queued) return queued;
+        throw attachOperatorDiagnostic(effectiveError, draft, payload);
       }
-      const queued = this.tryQueueOfflineReturn(draft, payload, originalSale, runtime, recoveryError || error);
-      if (queued) return queued;
-      throw attachOperatorDiagnostic(recoveryError || error, draft, payload);
     });
   }
 
@@ -138,8 +133,9 @@ class FiscalService {
       const pending = this.offlineQueue.listPending(runtime.clock || new Date());
       const results = [];
       for (const item of pending) {
+        let payload = null;
         try {
-          const payload = {
+          payload = {
             ...item.payload,
             Token: await this.resolveToken(runtime),
           };
@@ -172,8 +168,24 @@ class FiscalService {
           this.offlineQueue.markSynced(item.externalCheckNumber, record);
           results.push({ status: 'synced', item, record });
         } catch (error) {
-          this.offlineQueue.markFailed(item.externalCheckNumber, error);
-          results.push({ status: 'failed', item, error });
+          let effectiveError = error;
+          if (payload && isRecoverableWriteError(error)) {
+            try {
+              const record = await this.tryRecoverOfflineItem(item, payload, runtime);
+              if (record) {
+                this.offlineQueue.markSynced(item.externalCheckNumber, record);
+                results.push({ status: 'recovered', item, record });
+                continue;
+              }
+            } catch (recoveryError) {
+              effectiveError = recoveryError;
+            }
+          }
+          this.offlineQueue.markFailed(item.externalCheckNumber, effectiveError);
+          results.push({ status: 'failed', item, error: effectiveError });
+          // A lost response has an uncertain result. Do not let another queued
+          // fiscal write overtake it in the same synchronization batch.
+          if (isRecoverableWriteError(error)) break;
         }
       }
       return results;
@@ -432,16 +444,57 @@ class FiscalService {
     return { status: 'recovered', record, payload };
   }
 
+  async tryRecoverOfflineItem(item, payload, runtime) {
+    const fiscal = await this.lookupRecoveredFiscal(payload, runtime);
+    if (!fiscal) return null;
+    const common = {
+      environment: item.environment,
+      companyId: item.companyId,
+      cashboxUniqueNumber: item.cashboxUniqueNumber,
+      externalCheckNumber: item.externalCheckNumber,
+      iiko: item.iiko,
+      fiscal,
+      requestPayload: redactPayload(payload),
+      responseSummary: fiscal,
+      status: 'recovered',
+    };
+    return item.operation === 'sale'
+      ? this.store.upsertSale(common)
+      : this.store.upsertReturn({
+        ...common,
+        originalSaleExternalCheckNumber: item.originalSaleExternalCheckNumber,
+        returnBasisDetails: item.returnBasisDetails,
+      });
+  }
+
   async lookupRecoveredFiscal(payload, runtime = {}) {
-    return this.queue.enqueue(this.cashboxUniqueNumber, async () => {
-      const token = await this.resolveToken(runtime);
-      const shiftNumber = runtime.recoveryShiftNumber || runtime.shiftNumber;
-      if (shiftNumber) {
-        return this.lookupRecoveredFiscalByShift(payload, token, shiftNumber);
+    let lastRecoverableError = null;
+    for (let attempt = 1; attempt <= this.recoveryAttempts; attempt += 1) {
+      try {
+        const token = await this.resolveToken(runtime);
+        const shiftNumber = runtime.recoveryShiftNumber || runtime.shiftNumber;
+        if (shiftNumber) {
+          const fiscal = await this.lookupRecoveredFiscalByShift(payload, token, shiftNumber);
+          if (fiscal) return fiscal;
+        } else {
+          const fiscal = await this.lookupRecoveredFiscalByHistoryScan(payload, token, runtime);
+          if (fiscal) return fiscal;
+        }
+        lastRecoverableError = null;
+      } catch (error) {
+        if (!isRecoverableRecoveryError(error)) throw error;
+        lastRecoverableError = error;
       }
 
-      return this.lookupRecoveredFiscalByHistoryScan(payload, token, runtime);
-    });
+      if (attempt < this.recoveryAttempts && this.recoveryDelayMs > 0) {
+        await this.sleep(this.recoveryDelayMs);
+      }
+    }
+
+    if (lastRecoverableError && isRecoverableWriteError(lastRecoverableError)) {
+      throw lastRecoverableError;
+    }
+    return null;
   }
 
   async lookupRecoveredFiscalByShift(payload, token, shiftNumber) {
@@ -753,6 +806,31 @@ function clampMaxPages(value, fallback) {
   const number = Number(value);
   if (!Number.isInteger(number) || number <= 0) return fallback;
   return Math.min(number, 100);
+}
+
+function normalizeRecoveryAttempts(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 1 && number <= 10 ? number : 3;
+}
+
+function normalizeRecoveryDelay(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 && number <= 10000 ? number : 1000;
+}
+
+function isRecoverableRecoveryError(error) {
+  if (isRecoverableWriteError(error)) return true;
+  const message = String(error && (error.webkassaText || error.message) || error || '').toLowerCase();
+  return (
+    message.includes('not found') ||
+    message.includes('не найден') ||
+    message.includes('не найдено') ||
+    message.includes('отсутствует')
+  );
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function arrayFromUnknown(value) {

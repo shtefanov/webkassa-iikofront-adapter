@@ -4,6 +4,22 @@ Every GitHub Release and `iiko-plugin.kz` release page must include a `Known
 issues` section for the published version. If there are no known issues, write
 `No known issues confirmed for this release` instead of omitting the section.
 
+## 0.11.52-beta
+
+| Issue | Manifestation | Affected operation | Workaround | Severity |
+| --- | --- | --- | --- | --- |
+| Website beta manifest can lag behind pilot builds | Settings can report the installed pilot as newer than the published channel; no update notification is shown. | Startup/settings update check. | Publish the approved artifact and atomically advance the beta manifest only after validation. | Low during pilot. |
+| Stable manifest/signature is not available | Stable unattended update cannot be considered supply-chain safe. | Stable updater. | Keep stable auto-update blocked until detached signature verification with a pinned public key is implemented. | Critical for stable. |
+| `loginPasswordOnly` is not confirmed for Webkassa API v4 production | Authorization can fail without an API key. | Webkassa calls. | Use `apiKeyAndLoginPassword` for supported pilot operation. | High. |
+
+## 0.11.51-beta
+
+| Issue | Manifestation | Affected operation | Workaround | Severity |
+| --- | --- | --- | --- | --- |
+| `loginPasswordOnly` is not confirmed for Webkassa API v4 production | `/api/v4/Authorize` without `x-api-key` can fail even with login/password/cashbox number. | Connection test and all Webkassa calls. | Use `apiKeyAndLoginPassword` until Webkassa confirms a production login/password-only endpoint and request format. | High for no-API-key deployments. |
+| Past-order actions require retained local fiscal history | A receipt created before the local store retention window, or on another terminal, may not be found by iiko order id. | Past-order fiscal receipt print and QR display. | Use Webkassa history/support lookup when local order-linked data is unavailable. | Medium. |
+| Pilot build is not published | The deployed terminal may run newer code than GitHub and updater channels. | Automated update and external support comparison. | Keep the pilot terminal identified as `0.11.51-beta`; publish all channels only after approval. | Low during pilot. |
+
 ## 0.11.50-beta
 
 | Issue | Manifestation | Affected operation | Workaround | Severity |

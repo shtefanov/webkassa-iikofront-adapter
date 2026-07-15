@@ -33,8 +33,13 @@ const { RedactedFileLogger } = require('../../src/redacted-file-logger');
 const { buildLicenseStatus } = require('../../src/license-status');
 const { createMockWebkassaServer } = require('../../src/mock-webkassa-server');
 const { createSidecarServer } = require('../../src/sidecar-server');
-const { createFiscalService, loadSecretsFromEnv } = require('../../scripts/sidecar');
-const { WebkassaApiError, WebkassaClient } = require('../../src/webkassa-client');
+const { createFiscalService, loadConfig, loadSecretsFromEnv } = require('../../scripts/sidecar');
+const {
+  WebkassaApiError,
+  WebkassaClient,
+  WebkassaTimeoutError,
+  parseAlternativeBaseUrls,
+} = require('../../src/webkassa-client');
 const { WebkassaSession, isAuthorizationError } = require('../../src/webkassa-session');
 const {
   findHistoryRowByExternalCheckNumber,
@@ -147,6 +152,10 @@ function validateConfigExample() {
   assert.strictEqual(adapterConfig.offline.maxOfflineHours, 72, 'offline mode must be limited to 72 hours');
   assert.strictEqual(adapterConfig.offline.syncOnReconnect, true, 'offline mode must sync on reconnect');
   assert.strictEqual(adapterConfig.requestPolicy.maxRetries, 0, 'blind fiscal network retries must stay disabled');
+  assert.strictEqual(adapterConfig.requestPolicy.recoveryAttempts, 3, 'lost-response recovery must be bounded');
+  assert.strictEqual(adapterConfig.requestPolicy.recoveryDelayMs, 1000, 'lost-response recovery must pause before polling again');
+  assert.strictEqual(adapterConfig.requestPolicy.maxAlternativeHosts, 3, 'Code 505 failover must have a bounded host count');
+  assert(adapterConfig.sidecar.timeoutMs > adapterConfig.requestPolicy.timeoutMs, 'iikoFront sidecar timeout must exceed one Webkassa request timeout');
   assert.strictEqual(adapterConfig.webnkt.enabled, true, 'WebNKT support must be enabled');
   assert.strictEqual(adapterConfig.webnkt.fieldMap.nktCode, 'NTIN', 'WebNKT NKT code field must be configurable');
   assert.strictEqual(adapterConfig.webnkt.fieldMap.gtin, 'GTIN', 'WebNKT GTIN field must be configurable');
@@ -170,6 +179,18 @@ function validateConfigExample() {
   assert.strictEqual(adapterConfig.licenseMonitoring.warningDays, 7, 'license warning threshold must default to seven days');
   assert.strictEqual(adapterConfig.licenseMonitoring.checkIntervalMinutes, 60, 'license monitoring must avoid checking too frequently from iikoFront');
   assert(!JSON.stringify(adapterConfig).includes('WKD-'), 'adapter config must not contain raw API key');
+
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'webkassa-config-url-'));
+  let configIndex = 0;
+  const writeConfig = (overrides) => {
+    const configPath = path.join(configDir, `config-${configIndex++}.json`);
+    fs.writeFileSync(configPath, JSON.stringify({ ...adapterConfig, ...overrides }));
+    return configPath;
+  };
+  assert.strictEqual(loadConfig(writeConfig({ baseUrl: 'https://reserve.webkassa.kz' })).config.baseUrl, 'https://reserve.webkassa.kz', 'editable Base URL must accept a safe Webkassa HTTPS origin');
+  assert.throws(() => loadConfig(writeConfig({ baseUrl: 'https://kkm.webkassa.kz' })), /safe Webkassa HTTPS origin/, 'development mode must reject the production primary host');
+  assert.throws(() => loadConfig(writeConfig({ baseUrl: 'https://reserve.webkassa.kz/custom-path' })), /safe Webkassa HTTPS origin/, 'editable Base URL must reject paths');
+  assert.throws(() => loadConfig(writeConfig({ baseUrl: 'https://reserve.webkassa.kz:8443' })), /safe Webkassa HTTPS origin/, 'editable Base URL must reject custom ports');
 
   const version = fs.readFileSync(path.join(root, 'VERSION'), 'utf8').trim();
   assert.match(version, /^\d+\.\d+\.\d+(?:-(?:spike|alpha|beta)(?:\.\d+)?)?$/);
@@ -299,7 +320,14 @@ function validateSmokeScripts() {
   const settingsDialogSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'WebkassaSettingsDialog.cs'), 'utf8');
   assert(settingsDialogSource.includes('nationalCatalogApiKey.Text = string.Empty'), 'National Catalog API key must not be restored into UI memory');
   assert(settingsDialogSource.includes('nationalCatalogPassword.Text = string.Empty'), 'National Catalog password must not be restored into UI memory');
-  assert(settingsDialogSource.includes('login.Text = string.Empty'), 'Webkassa login must not be restored into UI memory');
+  assert(settingsDialogSource.includes('storedLogin = ResolveSecretBestEffort(provider, secretRefs.Login, "login")'), 'Webkassa login must be resolved from DPAPI for the settings UI');
+  assert(settingsDialogSource.includes('login.Text = storedLogin'), 'Webkassa login must be shown in its own field');
+  assert(settingsDialogSource.includes('apiKey.Text = MaskApiKey(storedApiKey)'), 'Webkassa API key must be masked by default');
+  assert(settingsDialogSource.includes('password.Text = MaskPassword(storedPassword)'), 'Webkassa password must be masked by default');
+  assert(settingsDialogSource.includes('apiKeyRevealTimer.Interval = 10000'), 'revealed Webkassa API key must be hidden again after 10 seconds');
+  assert(settingsDialogSource.includes('passwordRevealTimer.Interval = 10000'), 'revealed Webkassa password must be hidden again after 10 seconds');
+  assert(settingsDialogSource.includes('ApiKeyValueForSave()'), 'settings save must distinguish an edited API key from its masked display value');
+  assert(settingsDialogSource.includes('PasswordValueForSave()'), 'settings save must distinguish an edited password from its masked display value');
   assert(settingsDialogSource.includes('SecretRefForSave('), 'settings save must rotate SecretRefs when a secret value is entered');
   assert(settingsDialogSource.includes('Guid.NewGuid()'), 'settings save must avoid overwriting stale protected secret files');
 }
@@ -527,10 +555,20 @@ function validateIikoFrontSdk9Compliance() {
   assert(pluginSource.includes('AddButtonToPaymentScreen'), 'plugin must add a checked payment-screen button for optional fiscal receipt printing');
   assert(pluginSource.includes('UpdatePaymentScreenButtonState'), 'payment print button must update checked state');
   assert(pluginSource.includes('AddButtonToClosedOrderScreen'), 'plugin must add a closed-order Webkassa receipt print button');
+  assert(pluginSource.includes('AddButtonToPastOrderScreen'), 'plugin must add Webkassa actions to the iiko past-order screen');
+  assert(pluginSource.includes('Печать фискального чека'), 'closed-order print action must use the operator-facing fiscal receipt caption');
+  assert(pluginSource.includes('QR фискального чека'), 'closed-order QR action must use the operator-facing fiscal receipt caption');
+  assert(pluginSource.includes('OnPastOrderPrintButton'), 'past-order screen must support printing an existing Webkassa fiscal receipt');
+  assert(pluginSource.includes('OnPastOrderQrButton'), 'past-order screen must support showing the Webkassa external ticket QR');
+  assert(pluginSource.includes('order.OrderId.ToString("D")'), 'past-order lookup must use the original iiko order id');
+  assert(pluginSource.includes('ResolveExternalTicketUrl'), 'QR action must resolve the stored Webkassa external ticket link');
+  assert(!pluginSource.includes('Фискальный чек отправлен на печать.'), 'successful closed-order receipt printing must not block the operator with a confirmation popup');
   assert(pluginSource.includes('AddButtonToProductsReturnScreen'), 'plugin must add a return-screen Webkassa receipt print toggle button');
   assert(pluginSource.includes('OnReturnPrintToggle'), 'return-screen print button must toggle auto-print instead of replaying an old receipt');
   assert(pluginSource.includes('FindTicketsByOrderId(orderId)'), 'closed-order print button must look up existing fiscal tickets by order id');
   assert(pluginSource.includes('returnButtonRegistration.Dispose()'), 'plugin must unregister return-screen print button on Dispose');
+  assert(pluginSource.includes('pastOrderQrButtonRegistration.Dispose()'), 'plugin must unregister past-order QR button on Dispose');
+  assert(pluginSource.includes('pastOrderButtonRegistration.Dispose()'), 'plugin must unregister past-order print button on Dispose');
   assert(pluginSource.includes('cashRegisterFactoryRegistration.Dispose()'), 'plugin must unregister factory on Dispose');
   assert(pluginSource.includes('PluginLicenseModuleId(ReleaseInfo.IikoLicenseModuleId)'), 'plugin must use the configured iiko LicenseModuleId');
 
@@ -554,6 +592,13 @@ function validateIikoFrontSdk9Compliance() {
   assert(qrRendererSource.includes('ReedSolomon.ComputeRemainder'), 'QR renderer must generate Reed-Solomon error correction');
   assert(qrRendererSource.includes('quietZone = 4'), 'QR renderer must preserve the standard QR quiet zone');
   assert(qrRendererSource.includes('GetPenaltyScore'), 'QR renderer must choose a QR mask using penalty scoring');
+
+  const ticketQrDialogSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'WebkassaTicketQrDialog.cs'), 'utf8');
+  assert(ticketQrDialogSource.includes('Внешняя ссылка для просмотра чека'), 'QR dialog must identify the Webkassa external receipt link');
+  assert(ticketQrDialogSource.includes('QrCodeRenderer.Render'), 'QR dialog must render the external receipt link as a QR image');
+  assert(ticketQrDialogSource.includes('Uri.UriSchemeHttps'), 'QR dialog must accept only HTTPS external links');
+  assert(ticketQrDialogSource.includes('Копировать ссылку'), 'QR dialog must allow the operator to copy the external receipt link');
+  assert(ticketQrDialogSource.includes('Открыть ссылку'), 'QR dialog must allow the operator to open the external receipt link explicitly');
 
   const settingsDialogSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'WebkassaSettingsDialog.cs'), 'utf8');
   assert(settingsDialogSource.includes('DataProtectionScope.LocalMachine'), 'settings dialog must save secrets in machine-scope DPAPI for the sidecar service');
@@ -594,8 +639,23 @@ function validateIikoFrontSdk9Compliance() {
   assert(settingsDialogSource.includes('/api-portal/v4/cashbox/client-info'), 'settings dialog test must validate cashboxUniqueNumber');
   assert(settingsDialogSource.includes('x-api-key'), 'settings dialog test must send API key header when configured');
   assert(settingsDialogSource.includes('ResolveSecretBestEffort(provider, existingPasswordRef, "password")'), 'settings dialog test must reuse existing DPAPI password when the password field is blank');
-  assert(settingsDialogSource.includes('BuildPasswordRevealControl(password, passwordReveal)'), 'settings dialog must provide a password reveal control for the Webkassa password field');
-  assert(settingsDialogSource.includes('DrawPasswordRevealIcon'), 'settings dialog password reveal must use an icon button');
+  assert(settingsDialogSource.includes('BuildSecretControl(password, passwordStatus, passwordReveal, passwordEdit)'), 'settings dialog must provide password status, reveal, and edit controls');
+  assert(settingsDialogSource.includes('BuildSecretControl(apiKey, apiKeyStatus, apiKeyReveal, apiKeyEdit)'), 'settings dialog must provide API key status, reveal, and edit controls');
+  assert(settingsDialogSource.includes('passwordEdit.Text = "Изменить"'), 'settings dialog must require an explicit action before replacing the password');
+  assert(settingsDialogSource.includes('apiKeyEdit.Text = "Изменить"'), 'settings dialog must require an explicit action before replacing the API key');
+  assert(settingsDialogSource.includes('apiKey.AccessibleName = "Webkassa API key"'), 'API key field must have a stable non-secret accessible name');
+  assert(settingsDialogSource.includes('login.AccessibleName = "Webkassa Login"'), 'login field must have a stable non-secret accessible name');
+  assert(settingsDialogSource.includes('password.AccessibleName = "Webkassa Password"'), 'password field must have a stable non-secret accessible name');
+  assert(settingsDialogSource.includes('DevelopmentBaseUrl = "https://devkkm.webkassa.kz"'), 'API-key auth mode must use the official Webkassa development endpoint');
+  assert(settingsDialogSource.includes('ProductionBaseUrl = "https://kkm.webkassa.kz"'), 'login/password auth mode must use the official Webkassa production endpoint');
+  assert(settingsDialogSource.includes('baseUrl.Text = BaseUrlForAuthMode(mode)'), 'settings dialog must update Base URL from the selected auth mode');
+  assert(!settingsDialogSource.includes('baseUrl.ReadOnly = true'), 'automatically selected Base URL must remain operator-editable');
+  assert(settingsDialogSource.includes('configuration.BaseUrl = baseUrl.Text.Trim()'), 'settings save must persist the operator-edited primary Base URL');
+  assert(settingsDialogSource.includes('AlternativeDomainNames'), 'settings Base URL help must explain automatic Code 505 alternative-domain handling');
+  assert(!settingsDialogSource.includes('AddRow(webkassaLayout, 1, "Environment"'), 'settings dialog must not expose the derived environment as an operator field');
+  assert(!settingsDialogSource.includes('"Company profile", companyProfile'), 'settings dialog must not expose the internal storage namespace as an operator field');
+  assert(settingsDialogSource.includes('FirstNonEmpty(configuration.CompanyProfile, "default-company")'), 'settings save must preserve or safely default the internal company profile');
+  assert(settingsDialogSource.includes('? existingApiKeyRef'), 'login/password mode must preserve the protected API key reference for a later mode switch');
   assert(settingsDialogSource.includes('NON_JSON_RESPONSE'), 'settings dialog connection test must report non-JSON Webkassa responses without serializer internals');
 
   const sidecarClientSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'SidecarClient.cs'), 'utf8');
@@ -756,6 +816,19 @@ function validateIikoFrontSdk9Compliance() {
   assert(releaseInfo.includes('IikoFrontMinVersion = "9.5"'), 'release metadata must record iikoFront minimum version');
   assert(releaseInfo.includes('IikoLicenseModuleId = 21016318'), 'release metadata must record the interim iiko LicenseModuleId');
   assert(releaseInfo.includes('LicenseModuleIdStatus = "interim-assigned"'), 'release metadata must mark assigned interim iiko LicenseModuleId');
+  assert(releaseInfo.includes('UpdateHost = "iiko-plugin.kz"'), 'release metadata must pin the update manifest host');
+  assert(releaseInfo.includes('/updates/webkassa/{Channel}.json'), 'release metadata must derive the manifest from the compiled release channel');
+
+  const updateCheckerSource = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'UpdateAvailabilityChecker.cs'), 'utf8');
+  assert(updateCheckerSource.includes('AllowAutoRedirect = false'), 'startup update check must not follow redirects outside the pinned host');
+  assert(updateCheckerSource.includes('MaxManifestBytes = 64 * 1024'), 'startup update check must bound manifest size');
+  assert(updateCheckerSource.includes('CompareVersions'), 'startup update check must compare SemVer instead of comparing version strings');
+  assert(updateCheckerSource.includes('ReleaseInfo.UpdateManifestUrl'), 'startup update check must use the compiled channel manifest');
+  assert(!updateCheckerSource.includes('packageUrl'), 'in-plugin update check must not download or install packages');
+  assert(pluginSource.includes('CheckForUpdatesBestEffort'), 'plugin startup must schedule a non-blocking update check');
+  assert(pluginSource.includes('AddNotificationMessage'), 'a newer release must use the native non-modal iikoFront notification');
+  assert(settingsDialogSource.includes('Текущая версия: {ReleaseInfo.Version}'), 'settings footer must display the current plugin version');
+  assert(settingsDialogSource.includes('Доступна новая версия:'), 'settings footer must display update availability');
 
   const manifest = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'Manifest.xml'), 'utf8');
   assert(manifest.includes('<Manifest '), 'Manifest.xml must use iikoFront Manifest root');
@@ -1639,6 +1712,102 @@ async function validateFiscalServiceLostResponseRecoveryWithoutKnownShift() {
   fs.rmSync(tempDir, { recursive: true, force: true });
 }
 
+async function validateFiscalRecoveryKeepsCashboxQueueLocked() {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'webkassa-recovery-queue-'));
+  const lookupResponse = readJson('tests/fixtures/webkassa/ticket-lookup-sale-response.json');
+  const saleDraft = readJson('tests/fixtures/iiko/sale-draft.json');
+  const order = [];
+  let signalCheckStarted;
+  const checkStarted = new Promise((resolve) => { signalCheckStarted = resolve; });
+
+  const service = new FiscalService({
+    client: {
+      check: async () => {
+        order.push('check:start');
+        signalCheckStarted();
+        await delay(10);
+        order.push('check:timeout');
+        throw new Error('network timeout lost response');
+      },
+      lookupByExternalCheckNumber: async () => {
+        order.push('recovery:start');
+        await delay(20);
+        order.push('recovery:end');
+        return {
+          response: { status: 200, body: lookupResponse },
+          ticket: normalizeTicketLookupResponse(lookupResponse),
+        };
+      },
+      xReport: async () => {
+        order.push('report:start');
+        return { status: 200, body: { Data: { ReportNumber: 1, ShiftNumber: 1 } } };
+      },
+    },
+    store: new FiscalResultStore(path.join(tempDir, 'fiscal-results.json')),
+    environment: 'dev',
+    companyId: 'test-company',
+    cashboxUniqueNumber: 'SWK00035753',
+    mappingDefaults: {
+      token: '__TOKEN__',
+      defaultUnitCode: 796,
+      defaultRoundType: 2,
+      defaultPaymentType: 0,
+    },
+  });
+
+  const salePromise = service.fiscalizeSaleDraft(saleDraft, { recoveryShiftNumber: 1 });
+  await checkStarted;
+  const reportPromise = service.runXReport();
+  const [sale] = await Promise.all([salePromise, reportPromise]);
+  assert.strictEqual(sale.status, 'recovered');
+  assert.deepStrictEqual(order, [
+    'check:start',
+    'check:timeout',
+    'recovery:start',
+    'recovery:end',
+    'report:start',
+  ], 'the next cashbox request must wait until lost-response reconciliation finishes');
+
+  fs.rmSync(tempDir, { recursive: true, force: true });
+}
+
+async function validateFiscalRecoveryPollingIsBounded() {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'webkassa-recovery-bounded-'));
+  const saleDraft = readJson('tests/fixtures/iiko/sale-draft.json');
+  let lookupCount = 0;
+  let sleepCount = 0;
+  const service = new FiscalService({
+    client: {
+      check: async () => { throw new Error('network timeout lost response'); },
+      lookupByExternalCheckNumber: async () => {
+        lookupCount += 1;
+        return { response: { status: 200, body: { Data: null, Errors: [] } }, ticket: null };
+      },
+    },
+    store: new FiscalResultStore(path.join(tempDir, 'fiscal-results.json')),
+    environment: 'dev',
+    companyId: 'test-company',
+    cashboxUniqueNumber: 'SWK00035753',
+    recoveryAttempts: 3,
+    recoveryDelayMs: 1,
+    sleep: async () => { sleepCount += 1; },
+    mappingDefaults: {
+      token: '__TOKEN__',
+      defaultUnitCode: 796,
+      defaultRoundType: 2,
+      defaultPaymentType: 0,
+    },
+  });
+
+  await assert.rejects(
+    () => service.fiscalizeSaleDraft(saleDraft, { recoveryShiftNumber: 1 }),
+    (error) => error.operatorDiagnostic && error.operatorDiagnostic.code === ERROR_CODES.NETWORK_RECOVERABLE,
+  );
+  assert.strictEqual(lookupCount, 3, 'lost-response lookup count must be bounded by recoveryAttempts');
+  assert.strictEqual(sleepCount, 2, 'recovery must delay only between attempts');
+  fs.rmSync(tempDir, { recursive: true, force: true });
+}
+
 async function validateCashboxQueue() {
   const queue = new CashboxQueue();
   let active = 0;
@@ -1787,6 +1956,76 @@ async function validateWebkassaClient() {
   assert.strictEqual(printCalls[0].url, 'https://devkkm.webkassa.kz/api/v4/Ticket/PrintFormat');
   assert.strictEqual(printCalls[0].body.PaperKind, 0);
   assert.strictEqual(printCalls[0].options.headers['Accept-Language'], 'ru-RU');
+
+  assert.deepStrictEqual(
+    parseAlternativeBaseUrls('alternative1.webkassa.kz, https://alternative2.webkassa.kz, http://unsafe.test, 127.0.0.1'),
+    ['https://alternative1.webkassa.kz', 'https://alternative2.webkassa.kz'],
+    'alternative Webkassa hosts must be HTTPS public DNS origins without paths or ports',
+  );
+
+  const failoverCalls = [];
+  const failoverClient = new WebkassaClient({
+    baseUrl: 'https://devkkm.webkassa.kz',
+    timeoutMs: 1000,
+    fetchImpl: async (url) => {
+      failoverCalls.push(url);
+      if (url.startsWith('https://devkkm.webkassa.kz')) {
+        return mockFetchResponse({ Errors: [{ Code: 505, Text: 'service unavailable' }] }, {
+          AlternativeDomainNames: 'alternative1.webkassa.kz, alternative2.webkassa.kz',
+        });
+      }
+      if (url.startsWith('https://alternative1.webkassa.kz')) {
+        throw new Error('fetch failed on first alternative');
+      }
+      return mockFetchResponse(saleResponse);
+    },
+  });
+  const failoverResult = await failoverClient.check({ Token: 'redacted', CashboxUniqueNumber: 'SWK00035753' });
+  assert.strictEqual(failoverResult.fiscal.checkNumber, '1779616679908');
+  assert.deepStrictEqual(failoverCalls, [
+    'https://devkkm.webkassa.kz/api/v4/check',
+    'https://alternative1.webkassa.kz/api/v4/check',
+    'https://alternative2.webkassa.kz/api/v4/check',
+  ], 'Code 505 must preserve the request path and try only Webkassa-provided alternatives');
+
+  let timeoutCalls = 0;
+  const bodyTimeoutClient = new WebkassaClient({
+    baseUrl: 'https://devkkm.webkassa.kz',
+    timeoutMs: 1000,
+    fetchImpl: async (url, options) => {
+      timeoutCalls += 1;
+      return {
+        status: 200,
+        ok: true,
+        headers: new Map(),
+        text: () => new Promise((resolve, reject) => {
+          options.signal.addEventListener('abort', () => reject(new Error('body aborted')), { once: true });
+        }),
+      };
+    },
+  });
+  await assert.rejects(
+    () => bodyTimeoutClient.check({ Token: 'redacted', CashboxUniqueNumber: 'SWK00035753' }),
+    (error) => error instanceof WebkassaTimeoutError && error.phase === 'reading_body',
+    'the Webkassa deadline must include reading the response body',
+  );
+  assert.strictEqual(timeoutCalls, 1, 'a primary-host timeout must never trigger a blind retry');
+}
+
+function mockFetchResponse(body, headerValues = {}) {
+  const normalizedHeaders = new Map(
+    Object.entries(headerValues).map(([key, value]) => [key.toLowerCase(), value]),
+  );
+  return {
+    status: 200,
+    ok: true,
+    headers: {
+      get(name) {
+        return normalizedHeaders.get(String(name).toLowerCase()) || null;
+      },
+    },
+    text: async () => JSON.stringify(body),
+  };
 }
 
 async function validateFiscalServiceMoneyOperation() {
@@ -2463,6 +2702,8 @@ validateFiscalService()
   .then(validateFiscalServiceReportAuthRefresh)
   .then(validateFiscalServiceLostResponseRecovery)
   .then(validateFiscalServiceLostResponseRecoveryWithoutKnownShift)
+  .then(validateFiscalRecoveryKeepsCashboxQueueLocked)
+  .then(validateFiscalRecoveryPollingIsBounded)
   .then(validateCashboxQueue)
   .then(validateWebkassaClient)
   .then(validateFiscalServiceMoneyOperation)
