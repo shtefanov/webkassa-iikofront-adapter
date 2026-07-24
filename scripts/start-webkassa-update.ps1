@@ -2,7 +2,8 @@
 param(
     [ValidateSet("beta", "stable")]
     [string]$Channel = "beta",
-    [switch]$WaitForKey
+    [switch]$WaitForKey,
+    [switch]$InternalStaged
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,23 +20,70 @@ function Wait-ForOperator {
     }
 }
 
-if (-not (Test-IsAdministrator)) {
+function Get-LauncherArguments([string]$LauncherPath, [switch]$Staged) {
     $arguments = @(
         "-NoProfile",
         "-ExecutionPolicy Bypass",
-        ('-File "{0}"' -f $PSCommandPath),
+        ('-File "{0}"' -f $LauncherPath),
         ("-Channel {0}" -f $Channel)
     )
     if ($WaitForKey) {
         $arguments += "-WaitForKey"
     }
+    if ($Staged) {
+        $arguments += "-InternalStaged"
+    }
+    return $arguments
+}
+
+if (-not $InternalStaged -and -not (Test-IsAdministrator)) {
+    $arguments = Get-LauncherArguments -LauncherPath $PSCommandPath
 
     try {
+        Set-Location ([IO.Path]::GetTempPath())
         $process = Start-Process -FilePath "powershell.exe" -Verb RunAs -Wait -PassThru -ArgumentList $arguments
         exit $process.ExitCode
     } catch {
         Write-Host "Webkassa update was cancelled or could not obtain administrator rights." -ForegroundColor Yellow
         exit 1
+    }
+}
+
+if (-not (Test-IsAdministrator)) {
+    Write-Host "Webkassa updater requires administrator rights." -ForegroundColor Red
+    Wait-ForOperator
+    exit 1
+}
+
+if (-not $InternalStaged) {
+    $updaterSource = Join-Path $PSScriptRoot "update-iikofront-terminal.ps1"
+    if (-not (Test-Path -LiteralPath $updaterSource -PathType Leaf)) {
+        Write-Host "Webkassa updater was not found: $updaterSource" -ForegroundColor Red
+        Wait-ForOperator
+        exit 1
+    }
+
+    $stagingBase = Join-Path ([IO.Path]::GetTempPath()) "WebkassaIikoFrontAdapter\updater-runs"
+    $runRoot = Join-Path $stagingBase ([Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $runRoot | Out-Null
+    $stagedLauncher = Join-Path $runRoot "start-webkassa-update.ps1"
+
+    try {
+        Copy-Item -LiteralPath $PSCommandPath -Destination $stagedLauncher -Force
+        Copy-Item -LiteralPath $updaterSource -Destination $runRoot -Force
+        Set-Location $stagingBase
+        $arguments = Get-LauncherArguments -LauncherPath $stagedLauncher -Staged
+        $process = Start-Process -FilePath "powershell.exe" -Wait -PassThru -ArgumentList $arguments
+        exit $process.ExitCode
+    } catch {
+        Write-Host ("Webkassa updater staging failed: " + $_.Exception.Message) -ForegroundColor Red
+        Wait-ForOperator
+        exit 1
+    } finally {
+        Set-Location ([IO.Path]::GetTempPath())
+        if (Test-Path -LiteralPath $runRoot) {
+            Remove-Item -LiteralPath $runRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 

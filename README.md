@@ -11,7 +11,7 @@ operator diagnostics.
 
 The repository is public and under active beta development.
 
-Current package version: `0.11.54-beta`.
+Current package version: `0.11.55-beta`.
 
 Production rollout requires the stable release checklist in
 [`docs/release-checklist.md`](docs/release-checklist.md).

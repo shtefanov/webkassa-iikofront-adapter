@@ -1,7 +1,7 @@
 # Webkassa Project Page Facts
 
 Date: 16-07-2026
-Version: `0.11.54-beta`
+Version: `0.11.55-beta`
 
 Use this page as the factual source for `iiko-plugin.kz` project/release copy.
 

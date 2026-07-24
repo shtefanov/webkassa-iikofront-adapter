@@ -28,6 +28,11 @@ SHA256 before it stops iikoFront. The terminal installer then backs up the
 current plugin and replaces it. Start iikoFront again after the updater reports
 success.
 
+Before replacement, the launcher copies itself and the privileged updater to a
+unique directory under the Windows temporary path and changes the working
+directory away from the installed updater. This allows the terminal installer
+to replace `C:\Program Files\WebkassaIikoFrontAdapter\updater` safely.
+
 Finish all sales and fiscal operations before confirming the update. Cancelling
 the UAC prompt does not change the installed plugin.
 

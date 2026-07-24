@@ -849,6 +849,9 @@ function validateIikoFrontSdk9Compliance() {
   assert(updaterLauncherSource.includes('-Verb RunAs'), 'manual updater launcher must self-elevate through UAC');
   assert(updaterLauncherSource.includes('https://iiko-plugin.kz/updates/webkassa/$Channel.json'), 'updater launcher must use the trusted channel manifest');
   assert(updaterLauncherSource.includes('-StopIikoFront'), 'one-click updater must explicitly allow controlled iikoFront shutdown');
+  assert(updaterLauncherSource.includes('WebkassaIikoFrontAdapter\\updater-runs'), 'one-click updater must stage itself outside the installed updater directory');
+  assert(updaterLauncherSource.includes('-InternalStaged'), 'one-click updater must execute only the staged copy during replacement');
+  assert(updaterLauncherSource.includes('Set-Location ([IO.Path]::GetTempPath())'), 'one-click updater must release the installed updater directory as its working directory');
   const updaterCmdSource = fs.readFileSync(path.join(root, 'scripts', 'UPDATE-WEBKASSA.cmd'), 'utf8');
   assert(updaterCmdSource.includes('start-webkassa-update.ps1'), 'operator CMD must delegate to the controlled PowerShell launcher');
 

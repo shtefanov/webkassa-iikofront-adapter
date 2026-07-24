@@ -4,10 +4,18 @@ Every GitHub Release and `iiko-plugin.kz` release page must include a `Known
 issues` section for the published version. If there are no known issues, write
 `No known issues confirmed for this release` instead of omitting the section.
 
+## 0.11.55-beta
+
+| Issue | Manifestation | Affected operation | Workaround | Severity |
+| --- | --- | --- | --- | --- |
+| Stable manifest/signature is not available | Stable unattended update cannot be considered supply-chain safe. | Stable updater. | Keep stable auto-update blocked until detached signature verification with a pinned public key is implemented. | Critical for stable. |
+| `loginPasswordOnly` is not confirmed for Webkassa API v4 production | Authorization can fail without an API key. | Webkassa calls. | Use `apiKeyAndLoginPassword` for supported pilot operation. | High. |
+
 ## 0.11.54-beta
 
 | Issue | Manifestation | Affected operation | Workaround | Severity |
 | --- | --- | --- | --- | --- |
+| One-click updater runs from the directory it replaces | Plugin files may reach `0.11.54-beta`, but replacing the installed updater fails and leaves `WebkassaIikoFrontSidecar` stopped. | Settings `Установить` action. | Start `WebkassaIikoFrontSidecar` manually, then install `0.11.55-beta` or newer. | High. |
 | Stable manifest/signature is not available | Stable unattended update cannot be considered supply-chain safe. | Stable updater. | Keep stable auto-update blocked until detached signature verification with a pinned public key is implemented. | Critical for stable. |
 | `loginPasswordOnly` is not confirmed for Webkassa API v4 production | Authorization can fail without an API key. | Webkassa calls. | Use `apiKeyAndLoginPassword` for supported pilot operation. | High. |
 

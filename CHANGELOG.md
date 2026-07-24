@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.11.55-beta - 24-07-2026
+
+- Fixed one-click updates failing while replacing the installed updater
+  directory.
+- The launcher now stages itself and the privileged updater in a unique
+  Windows temporary directory before installation, and releases the installed
+  updater directory as its working directory.
+- Preserved UAC elevation, trusted manifest/package validation, backup, service
+  restart and post-install health checks.
+
 ## 0.11.54-beta - 16-07-2026
 
 - Removed runtime ACL binding to the Windows account that approved the
