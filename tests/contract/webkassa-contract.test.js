@@ -248,16 +248,21 @@ function validateSmokeScripts() {
   assert(terminalInstaller.includes('sidecar-runtime'), 'terminal installer must install the packaged sidecar runtime');
   assert(terminalInstaller.includes('updater'), 'terminal installer must install the packaged updater');
   assert(terminalInstaller.includes('UpdaterRoot'), 'terminal installer output must report the updater root');
-  assert(terminalInstaller.includes('Resolve-DefaultTargetUser'), 'terminal installer must choose a local computer account instead of WORKGROUP by default');
   assert(terminalInstaller.includes('New-Service'), 'terminal installer must register the local Windows sidecar service');
   assert(terminalInstaller.includes('127.0.0.1'), 'terminal installer must keep the sidecar local-only by default');
-  assert(terminalInstaller.includes('icacls'), 'terminal installer must set target iikoFront user ACLs');
+  assert(terminalInstaller.includes('icacls'), 'terminal installer must set deterministic Windows ACLs');
   assert(terminalInstaller.includes('sc.exe failure $ServiceName'), 'terminal installer must configure sidecar service recovery actions');
   assert(terminalInstaller.includes('sc.exe failureflag $ServiceName 1'), 'terminal installer must recover from wrapper-initiated exits');
   assert(terminalInstaller.includes('SetAccessRuleProtection($true, $false)'), 'protected directories must replace inherited ACLs');
-  assert(terminalInstaller.includes('Protect-PluginWritableDirectory'), 'plugin-writable directories must allow only SYSTEM, Administrators, and the iikoFront user');
-  assert(terminalInstaller.includes('Grant-Read -Path $configDir'), 'iikoFront must receive read-only config access');
-  assert(terminalInstaller.includes('Grant-Read -Path $logsDir'), 'iikoFront must receive read-only sidecar log access');
+  assert(terminalInstaller.includes("S-1-5-32-545"), 'terminal installer must use the language-independent built-in Windows Users SID');
+  assert(terminalInstaller.includes('Protect-PluginWritableDirectory'), 'plugin-writable directories must allow SYSTEM, Administrators, and all local Windows users');
+  assert(terminalInstaller.includes('Grant-Read -Path $pluginPath -Account $runtimeUsersAccount'), 'all local Windows users must receive read/execute access to the plugin');
+  assert(terminalInstaller.includes('Grant-Read -Path $InstallRoot -Account $runtimeUsersAccount'), 'all local Windows users must receive read/execute access to setup and updater files');
+  assert(terminalInstaller.includes('Grant-Read -Path $configDir -Account $runtimeUsersAccount'), 'all local Windows users must receive read-only config access');
+  assert(terminalInstaller.includes('Grant-Read -Path $logsDir -Account $runtimeUsersAccount'), 'all local Windows users must receive read-only sidecar log access');
+  assert(terminalInstaller.includes('RuntimeUsersGroup = $runtimeUsersGroup'), 'installer output must identify the runtime Windows group');
+  assert(!terminalInstaller.includes('Resolve-DefaultTargetUser'), 'terminal installer must not bind runtime ACLs to the installing account');
+  assert(!terminalInstaller.includes('$targetUser'), 'terminal installer must not retain per-user ACL state');
   assert(terminalInstaller.includes('nkt-store'), 'terminal installer must create ACLs for the indexed NKT catalog store');
   assert(!terminalInstaller.includes('WEBKASSA_API_KEY='), 'terminal installer must not write raw Webkassa secrets');
 
@@ -273,6 +278,7 @@ function validateSmokeScripts() {
   assert(updaterSource.includes('unsafe ZIP entry name'), 'updater must reject rooted paths and Windows alternate data streams');
   assert(updaterSource.includes('install-iikofront-terminal.ps1'), 'updater must delegate installation to the terminal installer');
   assert(updaterSource.includes('@installerParameters'), 'updater must call the terminal installer with named parameters');
+  assert(!updaterSource.includes('$installerParameters.IikoFrontUser'), 'updater must not bind installation ACLs to the UAC account');
   assert(updaterSource.includes('iikoFront is running'), 'updater must refuse unsafe replacement while iikoFront is running');
   assert(updaterSource.includes('updater-'), 'updater must write its own JSONL log');
   assert(!updaterSource.includes('WEBKASSA_API_KEY='), 'updater must not write raw Webkassa secrets');
@@ -289,7 +295,10 @@ function validateSmokeScripts() {
   const packageSource = fs.readFileSync(path.join(root, 'scripts', 'package-iikofront-adapter.ps1'), 'utf8');
   assert(packageSource.includes('install-iikofront-terminal.ps1'), 'package must include the terminal installer');
   assert(packageSource.includes('update-iikofront-terminal.ps1'), 'package must include the updater');
+  assert(packageSource.includes('start-webkassa-update.ps1'), 'package must include the elevated updater launcher');
+  assert(packageSource.includes('UPDATE-WEBKASSA.cmd'), 'package must include the operator updater launcher');
   assert(packageSource.includes('includesUpdater'), 'package manifest must advertise updater support');
+  assert(packageSource.includes('includesOneClickUpdater'), 'package manifest must advertise one-click updater support');
   assert(packageSource.includes('sidecar-service'), 'package must include sidecar service binaries');
   assert(packageSource.includes('sidecar-runtime'), 'package must include sidecar runtime files');
   assert(packageSource.includes('scripts/sidecar.js'), 'package must include the sidecar entry script');
@@ -829,6 +838,19 @@ function validateIikoFrontSdk9Compliance() {
   assert(pluginSource.includes('AddNotificationMessage'), 'a newer release must use the native non-modal iikoFront notification');
   assert(settingsDialogSource.includes('Текущая версия: {ReleaseInfo.Version}'), 'settings footer must display the current plugin version');
   assert(settingsDialogSource.includes('Доступна новая версия:'), 'settings footer must display update availability');
+  assert(settingsDialogSource.includes('StartUpdateInstallation'), 'settings footer must offer controlled update installation');
+  assert(settingsDialogSource.includes('Verb = "runas"'), 'settings update must request Windows administrator rights through UAC');
+  assert(settingsDialogSource.includes('UseShellExecute = true'), 'settings update must use the Windows shell for UAC');
+  assert(settingsDialogSource.includes('start-webkassa-update.ps1'), 'settings update must launch the installed external updater');
+  assert(settingsDialogSource.includes('завершите все продажи и кассовые операции'), 'settings update must warn the operator before closing iikoFront');
+
+  const updaterLauncherSource = fs.readFileSync(path.join(root, 'scripts', 'start-webkassa-update.ps1'), 'utf8');
+  assert(updaterLauncherSource.includes('Test-IsAdministrator'), 'updater launcher must verify administrator rights');
+  assert(updaterLauncherSource.includes('-Verb RunAs'), 'manual updater launcher must self-elevate through UAC');
+  assert(updaterLauncherSource.includes('https://iiko-plugin.kz/updates/webkassa/$Channel.json'), 'updater launcher must use the trusted channel manifest');
+  assert(updaterLauncherSource.includes('-StopIikoFront'), 'one-click updater must explicitly allow controlled iikoFront shutdown');
+  const updaterCmdSource = fs.readFileSync(path.join(root, 'scripts', 'UPDATE-WEBKASSA.cmd'), 'utf8');
+  assert(updaterCmdSource.includes('start-webkassa-update.ps1'), 'operator CMD must delegate to the controlled PowerShell launcher');
 
   const manifest = fs.readFileSync(path.join(root, 'src', 'Resto.Front.Api.Webkassa.V9', 'Manifest.xml'), 'utf8');
   assert(manifest.includes('<Manifest '), 'Manifest.xml must use iikoFront Manifest root');

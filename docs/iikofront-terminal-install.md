@@ -22,8 +22,6 @@ The package must include:
 - Node.js installed locally. The installer defaults to
   `C:\Program Files\nodejs\node.exe`.
 - Elevated PowerShell session.
-- The Windows account that runs iikoFront is known. Pass it through
-  `-IikoFrontUser` when installing from a different administrator account.
 
 ## Install
 
@@ -31,7 +29,6 @@ Run from the unpacked package folder:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install-iikofront-terminal.ps1 `
-  -IikoFrontUser "DOMAIN_OR_PC\iiko-user" `
   -StopIikoFront
 ```
 
@@ -41,9 +38,14 @@ installation path.
 The installer:
 
 - creates `%ProgramData%\WebkassaIikoFrontAdapter` subfolders;
-- grants Modify access to the iikoFront user for `config`, `secrets`,
+- grants the built-in Windows `Users` group read/execute access to the plugin,
+  setup utility and updater, so the install is not tied to the administrator
+  account that approved UAC;
+- grants the built-in Windows `Users` group Modify access to runtime folders:
   `exports`, `nkt-cache`, `nkt-drafts`, `nkt-batches`, `nkt-queue`,
-  `nkt-store`, `webnkt-imports`, `logs`, `state`, and `sidecar`;
+  `nkt-store`, `webnkt-imports`, and `state`;
+- keeps configuration changes behind UAC and keeps secrets, sidecar data,
+  backups and update packages writable only by SYSTEM and Administrators;
 - backs up the previous plugin folder before replacing it;
 - copies the plugin into `Front.Net\Plugins`;
 - installs or updates the local Windows service `WebkassaIikoFrontSidecar`;
@@ -53,6 +55,10 @@ The installer:
 The installer does not copy raw secrets and does not start the sidecar by
 default. Start it only after Webkassa credentials are configured, or pass
 `-StartSidecar` on a terminal that already has valid DPAPI secrets.
+
+`-IikoFrontUser` remains accepted only for compatibility with older deployment
+commands. It is ignored; runtime ACLs always use the language-independent
+`BUILTIN\Users` SID `S-1-5-32-545`.
 
 ## First Run
 
@@ -76,5 +82,5 @@ Every plugin change that affects any of these areas must review and update
 - config path or config schema;
 - ProgramData folders;
 - DPAPI secret storage;
-- iikoFront user ACL requirements;
+- plugin-wide Windows ACL requirements;
 - Node.js/runtime requirements.

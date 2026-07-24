@@ -3,7 +3,8 @@ param(
     [string]$ProjectPath = "src/Resto.Front.Api.Webkassa.V9/Resto.Front.Api.Webkassa.V9.csproj",
     [string]$SetupProjectPath = "tools/Webkassa.IikoFrontAdapter.Setup/Webkassa.IikoFrontAdapter.Setup.csproj",
     [string]$SidecarServiceProjectPath = "tools/Webkassa.Sidecar.WindowsService/Webkassa.Sidecar.WindowsService.csproj",
-    [string]$OutputRoot = "dist/iikofront-adapter"
+    [string]$OutputRoot = "dist/iikofront-adapter",
+    [switch]$NoRestore
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,9 +37,11 @@ Write-Host "Setup project: $setupProjectFile"
 Write-Host "Sidecar service project: $sidecarServiceProjectFile"
 Write-Host "Configuration: $Configuration"
 
-dotnet restore $projectFile
-if ($LASTEXITCODE -ne 0) {
-    throw "dotnet restore failed with exit code $LASTEXITCODE"
+if (-not $NoRestore) {
+    dotnet restore $projectFile
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet restore failed with exit code $LASTEXITCODE"
+    }
 }
 
 dotnet build $projectFile --configuration $Configuration --no-restore
@@ -46,9 +49,11 @@ if ($LASTEXITCODE -ne 0) {
     throw "dotnet build failed with exit code $LASTEXITCODE"
 }
 
-dotnet restore $setupProjectFile
-if ($LASTEXITCODE -ne 0) {
-    throw "dotnet restore setup failed with exit code $LASTEXITCODE"
+if (-not $NoRestore) {
+    dotnet restore $setupProjectFile
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet restore setup failed with exit code $LASTEXITCODE"
+    }
 }
 
 dotnet build $setupProjectFile --configuration $Configuration --no-restore
@@ -56,9 +61,11 @@ if ($LASTEXITCODE -ne 0) {
     throw "dotnet build setup failed with exit code $LASTEXITCODE"
 }
 
-dotnet restore $sidecarServiceProjectFile
-if ($LASTEXITCODE -ne 0) {
-    throw "dotnet restore sidecar service failed with exit code $LASTEXITCODE"
+if (-not $NoRestore) {
+    dotnet restore $sidecarServiceProjectFile
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet restore sidecar service failed with exit code $LASTEXITCODE"
+    }
 }
 
 dotnet build $sidecarServiceProjectFile --configuration $Configuration --no-restore
@@ -131,6 +138,8 @@ Copy-Item -Path (Join-Path $repoRoot "scripts/install-iikofront-terminal.ps1") -
 $updaterStageDir = Join-Path $stageDir "updater"
 New-Item -ItemType Directory -Force -Path $updaterStageDir | Out-Null
 Copy-Item -Path (Join-Path $repoRoot "scripts/update-iikofront-terminal.ps1") -Destination $updaterStageDir
+Copy-Item -Path (Join-Path $repoRoot "scripts/start-webkassa-update.ps1") -Destination $updaterStageDir
+Copy-Item -Path (Join-Path $repoRoot "scripts/UPDATE-WEBKASSA.cmd") -Destination $updaterStageDir
 Copy-Item -Path (Join-Path $repoRoot "scripts/install-iikofront-updater-task.ps1") -Destination $updaterStageDir
 Copy-Item -Path (Join-Path $repoRoot "scripts/new-release-manifest.ps1") -Destination $updaterStageDir
 
@@ -178,11 +187,13 @@ $manifest = [ordered]@{
     includesSetupUtility = $true
     includesTerminalInstaller = $true
     includesUpdater = $true
+    includesOneClickUpdater = $true
     includesSidecarService = $true
     includesSidecarRuntime = $true
     terminalInstaller = "install-iikofront-terminal.ps1"
     updaterPackage = "updater"
     updaterScript = "updater/update-iikofront-terminal.ps1"
+    updaterLauncher = "updater/UPDATE-WEBKASSA.cmd"
     sidecarServicePackage = "sidecar-service"
     sidecarRuntimePackage = "sidecar-runtime"
     deployStatus = "beta; deploy only to approved test or pilot iikoFront terminals"
@@ -208,6 +219,7 @@ Expected first validation:
 - run install-iikofront-terminal.ps1 from an elevated PowerShell session on the target iikoFront terminal;
 - run setup\Webkassa.IikoFrontAdapter.Setup.exe --paths;
 - for manifest-driven updates, run updater\update-iikofront-terminal.ps1 from an elevated PowerShell session;
+- for a guided beta update, run updater\UPDATE-WEBKASSA.cmd or use the button in Webkassa settings;
 - iikoFront loads the plugin without assembly binding errors;
 - Webkassa cash register factory appears as an available fiscal register driver;
 - no sale/return fiscalization is attempted until configuration is confirmed.

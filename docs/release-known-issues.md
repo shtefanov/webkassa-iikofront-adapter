@@ -4,6 +4,22 @@ Every GitHub Release and `iiko-plugin.kz` release page must include a `Known
 issues` section for the published version. If there are no known issues, write
 `No known issues confirmed for this release` instead of omitting the section.
 
+## 0.11.54-beta
+
+| Issue | Manifestation | Affected operation | Workaround | Severity |
+| --- | --- | --- | --- | --- |
+| Stable manifest/signature is not available | Stable unattended update cannot be considered supply-chain safe. | Stable updater. | Keep stable auto-update blocked until detached signature verification with a pinned public key is implemented. | Critical for stable. |
+| `loginPasswordOnly` is not confirmed for Webkassa API v4 production | Authorization can fail without an API key. | Webkassa calls. | Use `apiKeyAndLoginPassword` for supported pilot operation. | High. |
+
+## 0.11.53-beta
+
+| Issue | Manifestation | Affected operation | Workaround | Severity |
+| --- | --- | --- | --- | --- |
+| Updater can bind runtime folders to the administrator account that performs the update | iikoFront running under another Windows account receives `Access denied` for `nkt-store`, state or queue temporary files. | Sale enrichment and other runtime file operations. | Install `0.11.54-beta` or restore Modify access for the built-in Windows Users group on plugin runtime directories. | High. |
+| One-click updater is not present in older installed packages | Version `0.11.52-beta` and earlier can report an update but cannot display the new install button or launcher. | First upgrade to `0.11.53-beta`. | Install `0.11.53-beta` once with the existing external updater; subsequent releases can use the settings button. | Low. |
+| Stable manifest/signature is not available | Stable unattended update cannot be considered supply-chain safe. | Stable updater. | Keep stable auto-update blocked until detached signature verification with a pinned public key is implemented. | Critical for stable. |
+| `loginPasswordOnly` is not confirmed for Webkassa API v4 production | Authorization can fail without an API key. | Webkassa calls. | Use `apiKeyAndLoginPassword` for supported pilot operation. | High. |
+
 ## 0.11.52-beta
 
 | Issue | Manifestation | Affected operation | Workaround | Severity |

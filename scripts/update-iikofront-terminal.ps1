@@ -23,6 +23,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+if (-not [string]::IsNullOrWhiteSpace($IikoFrontUser)) {
+    Write-Warning "-IikoFrontUser is deprecated and ignored. Runtime access is granted to the built-in Windows Users group."
+}
+
 function Test-IsAdmin {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
@@ -244,10 +248,6 @@ function Invoke-TerminalInstaller([string]$Installer, [string]$StageDir) {
         ServiceName = $ServiceName
         HostAddress = $HostAddress
         Port = $Port
-    }
-
-    if (-not [string]::IsNullOrWhiteSpace($IikoFrontUser)) {
-        $installerParameters.IikoFrontUser = $IikoFrontUser
     }
 
     if ($StopIikoFront) {

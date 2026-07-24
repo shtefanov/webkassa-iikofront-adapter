@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 0.11.54-beta - 16-07-2026
+
+- Removed runtime ACL binding to the Windows account that approved the
+  installer or updater UAC prompt.
+- All local Windows users now receive read/execute access to the installed
+  plugin, setup utility and updater, plus Modify access to the plugin runtime
+  data directories through the language-independent `BUILTIN\Users` SID.
+- Kept configuration changes behind UAC and retained administrator/SYSTEM-only
+  write access for secrets, sidecar data, logs, backups and update packages.
+
+## 0.11.53-beta - 15-07-2026
+
+- Added an `Установить` button to Webkassa settings when the trusted
+  beta manifest reports a newer release.
+- The button requires operator confirmation and Windows UAC, then hands off to
+  the external updater. The updater validates the manifest, package size and
+  SHA256, closes iikoFront, backs up the installed plugin, and installs the new
+  package.
+- Added `UPDATE-WEBKASSA.cmd` as a manual fallback launcher. The plugin still
+  never replaces its own loaded DLL in-process.
+
 ## 0.11.52-beta - 15-07-2026
 
 - Added the current plugin version and update status to the Webkassa settings

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Printing;
@@ -81,6 +82,7 @@ public static class WebkassaSettingsDialog
         private readonly Label connectionStatus = new Label();
         private readonly Label currentVersionStatus = new Label();
         private readonly LinkLabel updateStatus = new LinkLabel();
+        private readonly Button installUpdate = new Button();
         private readonly TextBox nationalCatalogBaseUrl = new TextBox();
         private readonly TextBox nationalCatalogApiKey = new TextBox();
         private readonly TextBox nationalCatalogLogin = new TextBox();
@@ -176,7 +178,7 @@ public static class WebkassaSettingsDialog
             };
             rootLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-            rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+            rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
 
             var tabs = new TabControl { Dock = DockStyle.Fill };
             var webkassaTab = new TabPage("Webkassa");
@@ -585,8 +587,15 @@ public static class WebkassaSettingsDialog
             updateStatus.LinkBehavior = LinkBehavior.HoverUnderline;
             updateStatus.Margin = new Padding(0, 1, 0, 0);
             updateStatus.LinkClicked += (_, args) => OpenDeveloperSite(args.Link.LinkData as string);
+            installUpdate.AutoSize = true;
+            installUpdate.Text = "Обновить";
+            installUpdate.Visible = false;
+            installUpdate.Margin = new Padding(10, 0, 0, 0);
+            installUpdate.AccessibleName = "Установить обновление Webkassa";
+            installUpdate.Click += (_, _) => StartUpdateInstallation();
             versionPanel.Controls.Add(currentVersionStatus);
             versionPanel.Controls.Add(updateStatus);
+            versionPanel.Controls.Add(installUpdate);
 
             var developerPanel = new FlowLayoutPanel
             {
@@ -631,6 +640,7 @@ public static class WebkassaSettingsDialog
                 return;
 
             updateStatus.Links.Clear();
+            installUpdate.Visible = false;
             if (!result.CheckSucceeded)
             {
                 updateStatus.Text = "Обновление: проверить не удалось";
@@ -652,6 +662,80 @@ public static class WebkassaSettingsDialog
             tooltips.SetToolTip(updateStatus, "Открыть описание новой версии");
             if (!string.IsNullOrWhiteSpace(result.ReleaseNotesUrl))
                 updateStatus.Links.Add(0, updateStatus.Text.Length, result.ReleaseNotesUrl);
+            installUpdate.Text = "Установить";
+            installUpdate.Visible = true;
+            installUpdate.Tag = result.LatestVersion;
+            tooltips.SetToolTip(installUpdate, "Закрыть iikoFront и установить проверенное обновление с резервной копией");
+        }
+
+        private void StartUpdateInstallation()
+        {
+            var targetVersion = installUpdate.Tag as string;
+            var answer = MessageBox.Show(
+                this,
+                $"Установить Webkassa {targetVersion}?\n\n" +
+                "Перед продолжением завершите все продажи и кассовые операции. " +
+                "iikoFront будет закрыт, текущая версия плагина сохранена в резервную копию, " +
+                "а после установки iikoFront нужно будет запустить снова.",
+                "Обновление Webkassa",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2);
+            if (answer != DialogResult.Yes)
+                return;
+
+            var programFiles = Environment.GetEnvironmentVariable("ProgramW6432");
+            if (string.IsNullOrWhiteSpace(programFiles))
+                programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+
+            var launcherPath = Path.Combine(
+                programFiles,
+                "WebkassaIikoFrontAdapter",
+                "updater",
+                "start-webkassa-update.ps1");
+            if (!File.Exists(launcherPath))
+            {
+                MessageBox.Show(
+                    this,
+                    $"Компонент обновления не найден:\n{launcherPath}\n\n" +
+                    "Установите актуальный пакет Webkassa вручную один раз, после чего кнопка обновления будет доступна.",
+                    "Обновление Webkassa",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            try
+            {
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{launcherPath}\" -Channel {ReleaseInfo.Channel} -WaitForKey",
+                    WorkingDirectory = Path.GetDirectoryName(launcherPath),
+                    UseShellExecute = true,
+                    Verb = "runas",
+                };
+                Process.Start(startInfo);
+                Close();
+            }
+            catch (Win32Exception error) when (error.NativeErrorCode == 1223)
+            {
+                MessageBox.Show(
+                    this,
+                    "Обновление отменено: Windows не получил разрешение администратора.",
+                    "Обновление Webkassa",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            catch (Exception error)
+            {
+                MessageBox.Show(
+                    this,
+                    $"Не удалось запустить обновление: {error.Message}",
+                    "Обновление Webkassa",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
         }
 
         private static void OpenDeveloperSite(string? url)

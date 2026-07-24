@@ -11,7 +11,7 @@ operator diagnostics.
 
 The repository is public and under active beta development.
 
-Current package version: `0.11.52-beta`.
+Current package version: `0.11.54-beta`.
 
 Production rollout requires the stable release checklist in
 [`docs/release-checklist.md`](docs/release-checklist.md).
@@ -29,6 +29,8 @@ Production rollout requires the stable release checklist in
 - Windows DPAPI secret storage for installed terminals.
 - Setup utility for configuration, secret entry, and connection checks.
 - Manifest-driven Windows updater for beta/stable release channels.
+- Confirmed one-click update handoff from plugin settings to the privileged
+  Windows updater, with UAC confirmation and pre-replacement backup.
 - Operator-facing diagnostic messages for common Webkassa errors.
 - National Catalog helper flow for iiko product data.
 

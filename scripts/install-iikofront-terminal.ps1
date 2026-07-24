@@ -28,34 +28,36 @@ function Resolve-RequiredPath([string]$Path, [string]$Description) {
     return (Resolve-Path $Path).Path
 }
 
-function Grant-Modify([string]$Path, [string]$Account) {
-    if ([string]::IsNullOrWhiteSpace($Account)) {
-        return
-    }
-
-    if (-not (Test-Path $Path)) {
-        return
-    }
-
-    $item = Get-Item -LiteralPath $Path
-    if ($item.PSIsContainer) {
-        & icacls $Path /grant "$Account`:(OI)(CI)M" /T | Out-Null
-    } else {
-        & icacls $Path /grant "$Account`:M" | Out-Null
-    }
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to grant Modify permission on $Path to $Account."
-    }
-}
-
 function Grant-Read([string]$Path, [string]$Account) {
     if ([string]::IsNullOrWhiteSpace($Account) -or -not (Test-Path $Path)) { return }
     & icacls $Path /grant "$Account`:(OI)(CI)RX" /T | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Failed to grant read permission on $Path to $Account." }
 }
 
-function Protect-ServiceDirectory([string]$Path, [string]$UntrustedAccount) {
+function Protect-ApplicationRoot([string]$Path) {
+    if (-not (Test-Path $Path)) { return }
+
+    $systemSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+    $administratorsSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+    $usersSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-545')
+
+    & icacls $Path /setowner '*S-1-5-32-544' /C | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Failed to normalize ownership for $Path." }
+
+    $acl = New-Object Security.AccessControl.DirectorySecurity
+    $acl.SetAccessRuleProtection($true, $false)
+    $acl.SetOwner($administratorsSid)
+    $inheritance = [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit
+    $none = [Security.AccessControl.InheritanceFlags]::None
+    $propagation = [Security.AccessControl.PropagationFlags]::None
+    $allow = [Security.AccessControl.AccessControlType]::Allow
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($systemSid, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, $propagation, $allow))
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($administratorsSid, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, $propagation, $allow))
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($usersSid, [Security.AccessControl.FileSystemRights]::ReadAndExecute, $none, $propagation, $allow))
+    Set-Acl -LiteralPath $Path -AclObject $acl
+}
+
+function Protect-ServiceDirectory([string]$Path) {
     if (-not (Test-Path $Path)) { return }
 
     $systemSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-18')
@@ -95,13 +97,12 @@ function Protect-ServiceDirectory([string]$Path, [string]$UntrustedAccount) {
     }
 }
 
-function Protect-PluginWritableDirectory([string]$Path, [string]$Account) {
+function Protect-PluginWritableDirectory([string]$Path) {
     if (-not (Test-Path $Path)) { return }
-    if ([string]::IsNullOrWhiteSpace($Account)) { throw "Target iikoFront account is required for $Path." }
 
     $systemSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-18')
     $administratorsSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
-    $targetSid = ([Security.Principal.NTAccount]::new($Account)).Translate([Security.Principal.SecurityIdentifier])
+    $usersSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-545')
 
     & icacls $Path /setowner '*S-1-5-32-544' /T /C | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Failed to normalize ownership for $Path." }
@@ -114,7 +115,7 @@ function Protect-PluginWritableDirectory([string]$Path, [string]$Account) {
     $allow = [Security.AccessControl.AccessControlType]::Allow
     $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($systemSid, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, $propagation, $allow))
     $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($administratorsSid, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, $propagation, $allow))
-    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($targetSid, [Security.AccessControl.FileSystemRights]::Modify, $inheritance, $propagation, $allow))
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($usersSid, [Security.AccessControl.FileSystemRights]::Modify, $inheritance, $propagation, $allow))
     Set-Acl -LiteralPath $Path -AclObject $acl
 
     Get-ChildItem -LiteralPath $Path -Force | ForEach-Object {
@@ -122,7 +123,7 @@ function Protect-PluginWritableDirectory([string]$Path, [string]$Account) {
         if ($LASTEXITCODE -ne 0) { throw "Failed to reset child ACLs under $Path." }
     }
 
-    $allowedSids = @($systemSid.Value, $administratorsSid.Value, $targetSid.Value)
+    $allowedSids = @($systemSid.Value, $administratorsSid.Value, $usersSid.Value)
     @((Get-Item -LiteralPath $Path)) + @(Get-ChildItem -LiteralPath $Path -Recurse -Force) | ForEach-Object {
         $itemAcl = Get-Acl -LiteralPath $_.FullName
         foreach ($rule in $itemAcl.Access) {
@@ -144,20 +145,12 @@ function Copy-CleanDirectory([string]$Source, [string]$Destination) {
     Copy-Item -Path (Join-Path $Source "*") -Destination $Destination -Recurse -Force
 }
 
-function Resolve-DefaultTargetUser {
-    if (-not [string]::IsNullOrWhiteSpace($env:USERDOMAIN) -and $env:USERDOMAIN -ne "WORKGROUP") {
-        return "$env:USERDOMAIN\$env:USERNAME"
-    }
-
-    if (-not [string]::IsNullOrWhiteSpace($env:COMPUTERNAME)) {
-        return "$env:COMPUTERNAME\$env:USERNAME"
-    }
-
-    return $env:USERNAME
-}
-
 if (-not (Test-IsAdmin)) {
     throw "Run this installer from an elevated PowerShell session."
+}
+
+if (-not [string]::IsNullOrWhiteSpace($IikoFrontUser)) {
+    Write-Warning "-IikoFrontUser is deprecated and ignored. Runtime access is granted to the built-in Windows Users group."
 }
 
 $packageRootPath = Resolve-RequiredPath $PackageRoot "Package root"
@@ -184,10 +177,8 @@ if (-not (Test-Path $IikoFrontPluginsRoot)) {
     throw "iikoFront Plugins folder was not found: $IikoFrontPluginsRoot. Pass -IikoFrontPluginsRoot for this terminal."
 }
 
-$targetUser = $IikoFrontUser
-if ([string]::IsNullOrWhiteSpace($targetUser)) {
-    $targetUser = Resolve-DefaultTargetUser
-}
+$runtimeUsersAccount = '*S-1-5-32-545'
+$runtimeUsersGroup = 'BUILTIN\Users (S-1-5-32-545)'
 
 $pluginPath = Join-Path $IikoFrontPluginsRoot "Resto.Front.Api.Webkassa.V9"
 $legacyPluginPaths = @(
@@ -201,6 +192,7 @@ $setupInstallRoot = Join-Path $InstallRoot "setup"
 $configDir = Join-Path $ProgramDataRoot "config"
 $configPath = Join-Path $configDir "webkassa-adapter.config.json"
 $logsDir = Join-Path $ProgramDataRoot "logs"
+$updatesDir = Join-Path $ProgramDataRoot "updates"
 $sidecarDataDir = Join-Path $ProgramDataRoot "sidecar"
 $secretsDir = Join-Path $ProgramDataRoot "secrets"
 $sidecarIpcSecretsDir = Join-Path $secretsDir "ipc"
@@ -214,30 +206,32 @@ $pluginWritableDirs = @(
     (Join-Path $ProgramDataRoot "webnkt-imports"),
     (Join-Path $ProgramDataRoot "state")
 )
-$serviceOnlyDirs = @($configDir, $secretsDir, $sidecarDataDir, $backupRoot, $logsDir)
+$serviceOnlyDirs = @($configDir, $secretsDir, $sidecarDataDir, $backupRoot, $logsDir, $updatesDir)
 $managedDirs = @($pluginWritableDirs) + @($serviceOnlyDirs)
+
+New-Item -ItemType Directory -Force -Path $ProgramDataRoot | Out-Null
+Protect-ApplicationRoot -Path $ProgramDataRoot
 
 foreach ($dir in $managedDirs) {
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
 }
 
 foreach ($dir in $serviceOnlyDirs) {
-    Protect-ServiceDirectory -Path $dir -UntrustedAccount $targetUser
+    Protect-ServiceDirectory -Path $dir
 }
 
 foreach ($dir in $pluginWritableDirs) {
-    Protect-PluginWritableDirectory -Path $dir -Account $targetUser
+    Protect-PluginWritableDirectory -Path $dir
 }
 New-Item -ItemType Directory -Force -Path $sidecarIpcSecretsDir | Out-Null
-Grant-Read -Path $sidecarIpcSecretsDir -Account $targetUser
-Grant-Read -Path $configDir -Account $targetUser
-Grant-Read -Path $logsDir -Account $targetUser
+Grant-Read -Path $sidecarIpcSecretsDir -Account $runtimeUsersAccount
+Grant-Read -Path $configDir -Account $runtimeUsersAccount
+Grant-Read -Path $logsDir -Account $runtimeUsersAccount
 
 if (-not (Test-Path $configPath)) {
     $configSource = Join-Path $packageRootPath "config\iikofront-adapter.config.example.json"
     Resolve-RequiredPath $configSource "Config example" | Out-Null
     Copy-Item -LiteralPath $configSource -Destination $configPath -Force
-    Grant-Modify -Path $configPath -Account $targetUser
 }
 
 $runningFront = Get-Process Resto.Front.Main, Resto.Front.Api.Host -ErrorAction SilentlyContinue
@@ -289,6 +283,9 @@ $installedSetupExe = Resolve-RequiredPath (Join-Path $setupInstallRoot "Webkassa
     $installedSetupExe,
     [Text.UTF8Encoding]::new($false))
 
+Grant-Read -Path $pluginPath -Account $runtimeUsersAccount
+Grant-Read -Path $InstallRoot -Account $runtimeUsersAccount
+
 $serviceExe = Join-Path $sidecarServiceInstallRoot "Webkassa.Sidecar.WindowsService.exe"
 Resolve-RequiredPath $serviceExe "Sidecar service executable" | Out-Null
 
@@ -329,7 +326,7 @@ $installedVersion = (Get-Content -Raw -LiteralPath (Join-Path $pluginPath "VERSI
     PluginPath = $pluginPath
     ConfigPath = $configPath
     ProgramDataRoot = $ProgramDataRoot
-    IikoFrontUser = $targetUser
+    RuntimeUsersGroup = $runtimeUsersGroup
     SidecarService = $ServiceName
     SidecarServiceStatus = $service.Status.ToString()
     SidecarRuntimeRoot = $sidecarRuntimeInstallRoot

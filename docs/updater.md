@@ -16,8 +16,29 @@ The iikoFront plugin itself performs only a small availability check. Once per
 plugin process start it requests the manifest for its compiled channel in the
 background. If the manifest version is newer, iikoFront shows one non-modal
 notification. The settings footer also shows the current version and cached
-check result. The in-process check never downloads a package, stops iikoFront,
-or installs files.
+check result. The in-process check never downloads or replaces package files.
+
+## One-click Update
+
+When a newer release is available, Webkassa settings show the target version
+and an `Установить` button. The button asks for explicit confirmation, starts
+the installed external updater through Windows UAC, and closes the settings window.
+The updater validates the trusted HTTPS manifest, version, package size and
+SHA256 before it stops iikoFront. The terminal installer then backs up the
+current plugin and replaces it. Start iikoFront again after the updater reports
+success.
+
+Finish all sales and fiscal operations before confirming the update. Cancelling
+the UAC prompt does not change the installed plugin.
+
+If the settings button is unavailable, run this fallback launcher:
+
+```text
+C:\Program Files\WebkassaIikoFrontAdapter\updater\UPDATE-WEBKASSA.cmd
+```
+
+The launcher is channel-specific. The beta package uses the beta manifest; a
+future stable package must ship a stable-channel launcher.
 
 ## Release Channels
 

@@ -122,8 +122,8 @@ Do this only on approved test/pilot iikoFront terminals:
 1. Confirm the exact iikoFront plugin folder for the installed version.
 2. Confirm Node.js is installed and visible at
    `C:\Program Files\nodejs\node.exe`, or pass `-NodePath`.
-3. Confirm the iikoFront user account and pass it through `-IikoFrontUser` when
-   installing from another administrator account.
+3. Confirm the package uses the built-in Windows `Users` SID for plugin-wide
+   runtime access and does not bind ACLs to the administrator account.
 4. Install from an elevated PowerShell session with
    `install-iikofront-terminal.ps1` or the updater.
 5. Confirm `WebkassaIikoFrontSidecar` starts, `GET /health` returns `ok=true`,
